@@ -1,0 +1,14 @@
+[
+{"_id":"6a37b453737741e72775f016","servicesText":"MERN Stack","addedBy":"67e7d02fb0e3a9a66d377e7c","addedByType":"Admin","createdAt":"2026-06-21T09:52:19.072Z","updatedAt":"2026-06-21T09:52:19.072Z","__v":0},
+{"_id":"6a37b458737741e72775f01a","servicesText":"PHP","addedBy":"67e7d02fb0e3a9a66d377e7c","addedByType":"Admin","createdAt":"2026-06-21T09:52:24.394Z","updatedAt":"2026-06-21T09:52:24.394Z","__v":0},
+{"_id":"6a37b45d737741e72775f01e","servicesText":"PYTHON","addedBy":"67e7d02fb0e3a9a66d377e7c","addedByType":"Admin","createdAt":"2026-06-21T09:52:29.715Z","updatedAt":"2026-06-21T09:52:29.715Z","__v":0},
+{"_id":"6a37b461737741e72775f022","servicesText":"JAVA","addedBy":"67e7d02fb0e3a9a66d377e7c","addedByType":"Admin","createdAt":"2026-06-21T09:52:33.912Z","updatedAt":"2026-06-21T09:52:33.912Z","__v":0},
+{"_id":"6a37b46a737741e72775f026","servicesText":"Data Analysis","addedBy":"67e7d02fb0e3a9a66d377e7c","addedByType":"Admin","createdAt":"2026-06-21T09:52:42.108Z","updatedAt":"2026-06-21T09:52:50.511Z","__v":0},
+{"_id":"6a37b47e737741e72775f02e","servicesText":"Embedded","addedBy":"67e7d02fb0e3a9a66d377e7c","addedByType":"Admin","createdAt":"2026-06-21T09:53:02.144Z","updatedAt":"2026-06-21T09:53:02.144Z","__v":0},
+{"_id":"6a37b484737741e72775f032","servicesText":"AutoCad","addedBy":"67e7d02fb0e3a9a66d377e7c","addedByType":"Admin","createdAt":"2026-06-21T09:53:08.193Z","updatedAt":"2026-06-21T09:53:08.193Z","__v":0},
+{"_id":"6a37b48f737741e72775f036","servicesText":"Digital Marketing","addedBy":"67e7d02fb0e3a9a66d377e7c","addedByType":"Admin","createdAt":"2026-06-21T09:53:19.439Z","updatedAt":"2026-06-21T09:53:19.439Z","__v":0},
+{"_id":"6a37b49b737741e72775f03a","servicesText":"Graphic Designing","addedBy":"67e7d02fb0e3a9a66d377e7c","addedByType":"Admin","createdAt":"2026-06-21T09:53:31.490Z","updatedAt":"2026-06-21T09:53:31.490Z","__v":0},
+{"_id":"6a37b4b4737741e72775f03e","servicesText":"Asp.Net","addedBy":"67e7d02fb0e3a9a66d377e7c","addedByType":"Admin","createdAt":"2026-06-21T09:53:56.528Z","updatedAt":"2026-06-21T09:53:56.528Z","__v":0},
+{"_id":"6a3e6c24059ee51894a0cecd","servicesText":"Apprenticeship","addedBy":"67e7d02fb0e3a9a66d377e7c","addedByType":"Admin","createdAt":"2026-06-26T12:10:12.055Z","updatedAt":"2026-06-26T12:10:12.055Z","__v":0},
+{"_id":"6a3e6c2b059ee51894a0ced1","servicesText":"Summer Training","addedBy":"67e7d02fb0e3a9a66d377e7c","addedByType":"Admin","createdAt":"2026-06-26T12:10:19.775Z","updatedAt":"2026-06-26T12:10:19.775Z","__v":0}
+]

@@ -16,13 +16,9 @@ export const getPendingLeadCount = async (employeeId) => {
     {
       $lookup: {
         from: "followups",
-        let: { leadId: "$_id" },
+        localField: "_id",
+        foreignField: "leadId",
         pipeline: [
-          {
-            $match: {
-              $expr: { $eq: ["$leadId", "$$leadId"] },
-            },
-          },
           { $sort: { createdAt: -1 } },
           { $limit: 1 },
         ],
@@ -40,6 +36,9 @@ export const getPendingLeadCount = async (employeeId) => {
               $ne: new mongoose.Types.ObjectId(employeeId),
             },
           },
+          {
+            "latestFollowup.0.clientSpoken": false
+          }
         ],
       },
     },

@@ -5,7 +5,12 @@ const followupSchema = new mongoose.Schema(
     leadId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Lead", 
-      required: true,
+      required: false,
+    },
+    excelLeadId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ExcelLead",
+      required: false,
     },
   
     followupStatus: {
@@ -33,6 +38,14 @@ const followupSchema = new mongoose.Schema(
       type: Boolean,
       default: false
     },
+    missedCounted: {
+      type: Boolean,
+      default: false
+    },
+    clientSpoken: {
+      type: Boolean,
+      default: false
+    },
   },
   {
     timestamps: true,
@@ -40,5 +53,8 @@ const followupSchema = new mongoose.Schema(
 );
 
 const Followup = new mongoose.model("Followup", followupSchema);
+
+// Add compound index for fast latest followup lookup
+followupSchema.index({ leadId: 1, createdAt: -1 });
 
 export default Followup

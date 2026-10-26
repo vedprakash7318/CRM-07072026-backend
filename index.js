@@ -22,15 +22,20 @@ import request from "./routes/request.routes.js";
 import serviceRouter from "./routes/service.route.js";
 import notificationRouter from "./routes/NotificationToken.routes.js";
 import tagParentRouter from "./routes/tagParent.route.js";
-import reportRouter from "./routes/report.routes.js";
+
 import inAppNotificationRouter from "./routes/notification.routes.js";
 import leadRequestRouter from "./routes/leadRequest.routes.js";
-
+import employeeReportNewRouter from "./routes/employeeReportNew.routes.js";
+import reportSettingsRouter from "./routes/reportSettings.routes.js";
+import excelLeadRouter from "./routes/excelLead.routes.js";
 // 🔥 Morning pending lead cron
 import "./corn/pendingLeadMorningCron.js";
 import "./corn/reminderCron.js";
 import "./corn/missedLeadCron.js";
-import "./corn/dailyReportCron.js";
+import "./corn/employeeReportCron.js";
+import "./corn/exactTimeReminderCron.js";
+import "./corn/emailReportCron.js";
+
 
 dotenv.config();
 
@@ -74,9 +79,10 @@ app.use("/digicoder/crm/api/v1/leadSources", leadSourcesRouter);
 app.use("/digicoder/crm/api/v1/notification", notificationRouter);
 app.use("/digicoder/crm/api/v1/tag-parent", tagParentRouter);
 app.use("/digicoder/crm/api/v1/tagParent", tagParentRouter); // Keep for backwards compatibility
-app.use("/digicoder/crm/api/v1/report", reportRouter);
+
 app.use("/digicoder/crm/api/v1/inapp-notification", inAppNotificationRouter);
 app.use("/digicoder/crm/api/v1/lead-request", leadRequestRouter);
+app.use("/digicoder/crm/api/v1/daily-report", employeeReportNewRouter);
 app.use("/digicoder/crm/api/v1/service", serviceRouter);
 app.use("/digicoder/crm/api/v1/followupstatus", followupStatusRouter);
 app.use("/digicoder/crm/api/v1/priority", priorityRouter);
@@ -84,7 +90,9 @@ app.use("/digicoder/crm/api/v1/followup", followupRouter);
 app.use("/digicoder/crm/api/v1/tags", tagRouter);
 app.use("/digicoder/crm/api/v1/dashboard", dashboardRoutes);
 app.use("/digicoders/crm/api/v1/request", request);
-app.use("/digicoder/crm/api/v1/report", reportRouter);
+app.use("/digicoder/crm/api/v1/report-settings", reportSettingsRouter);
+app.use("/digicoder/crm/api/v1/excel-leads", excelLeadRouter);
+
 
 app.get("/", (_, res) => {
   res.send("I'm Coming from Backend");

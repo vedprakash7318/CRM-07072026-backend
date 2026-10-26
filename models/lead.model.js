@@ -165,6 +165,14 @@ const leadSchema = mongoose.Schema({
     type: String,
     default: ""
   },
+  closedAt: {
+    type: Date,
+    default: null
+  },
+  negativeAt: {
+    type: Date,
+    default: null
+  },
 }, { timestamps: true })
 
 const Lead = new mongoose.model("Lead", leadSchema)

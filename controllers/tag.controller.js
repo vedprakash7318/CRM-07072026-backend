@@ -217,6 +217,7 @@
 import mongoose from "mongoose";
 import Tag from "../models/tag.modal.js";
 import TagParent from "../models/tagParent.model.js";
+import Lead from "../models/lead.model.js";
 
 // ============================
 // ✅ ADD TAG (WITH PARENT)
@@ -303,6 +304,7 @@ export const getAllTagsServerSidePagination = async (req, res) => {
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 10;
         const search = req.query.search || "";
+        const parentId = req.query.parentId || "";
 
         const skip = (page - 1) * limit;
 
@@ -312,6 +314,14 @@ export const getAllTagsServerSidePagination = async (req, res) => {
             ...(search && { tagName: { $regex: search, $options: "i" } })
         };
 
+        if (parentId && parentId !== "" && parentId !== "all") {
+            if (parentId === "unassigned" || parentId === "null") {
+                searchFilter.parentId = null;
+            } else if (mongoose.Types.ObjectId.isValid(parentId)) {
+                searchFilter.parentId = new mongoose.Types.ObjectId(parentId);
+            }
+        }
+
         // 📊 Data + count
         const [tags, total] = await Promise.all([
             Tag.find(searchFilter)
@@ -319,10 +329,15 @@ export const getAllTagsServerSidePagination = async (req, res) => {
                 .populate("addedBy")
                 .skip(skip)
                 .limit(limit)
-                .sort({ createdAt: -1 }),
+                .sort({ createdAt: -1 })
+                .lean(),
 
             Tag.countDocuments(searchFilter)
         ]);
+
+        for (let tag of tags) {
+            tag.leadCount = await Lead.countDocuments({ tags: tag._id });
+        }
 
         return res.status(200).json({
             message: "Tags fetched successfully",
@@ -349,8 +364,19 @@ export const getAllTagsServerSidePagination = async (req, res) => {
 export const getAllTags = async (req, res) => {
     try {
         const addedBy = req.params.id;
+        const parentId = req.query.parentId || "";
 
-        const tags = await Tag.find({ addedBy })
+        const filter = { addedBy };
+
+        if (parentId && parentId !== "" && parentId !== "all") {
+            if (parentId === "unassigned" || parentId === "null") {
+                filter.parentId = null;
+            } else if (mongoose.Types.ObjectId.isValid(parentId)) {
+                filter.parentId = new mongoose.Types.ObjectId(parentId);
+            }
+        }
+
+        const tags = await Tag.find(filter)
             .populate("parentId", "tagParentName")
             .populate("addedBy");
 

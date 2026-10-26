@@ -18,34 +18,53 @@ cron.schedule(
       endOfDay.setHours(23, 59, 59, 999);
 
       // Get all active employees with FCM token
-      const employees = await Employee.find({ blocked: false, fcmToken: { $ne: null } });
+      const employees = await Employee.find({ blocked: false, fcmTokens: { $exists: true, $not: { $size: 0 } } });
 
       for (const emp of employees) {
         // Find followups due today that haven't been completed
         // (A followup is pending if it exists and the lead is not closed/deleted)
-        const dueFollowups = await Followup.countDocuments({
-          followedBy: emp._id,
-          nextFollowupDate: {
-            $gte: startOfDay,
-            $lte: endOfDay
-          }
-        });
+        const dueFollowupsCountResult = await import("../models/lead.model.js").then(module => module.default.aggregate([
+          { $match: { leadAssignedTo: emp._id, closed: false, deleted: false, negative: false } },
+          {
+            $lookup: {
+              from: "followups",
+              let: { leadId: "$_id" },
+              pipeline: [
+                { $match: { $expr: { $eq: ["$leadId", "$$leadId"] } } },
+                { $sort: { createdAt: -1 } },
+                { $limit: 1 }
+              ],
+              as: "latestFollowup"
+            }
+          },
+          {
+            $match: {
+              "latestFollowup.0.nextFollowupDate": {
+                $gte: startOfDay,
+                $lte: endOfDay
+              }
+            }
+          },
+          { $count: "count" }
+        ]));
+
+        const dueFollowups = dueFollowupsCountResult.length > 0 ? dueFollowupsCountResult[0].count : 0;
 
         if (dueFollowups > 0) {
           try {
-            await admin.messaging().send({
-              token: emp.fcmToken,
+            await admin.messaging().sendEachForMulticast({
+              tokens: emp.fcmTokens,
               notification: {
-                title: "📌 Reminder: Follow-ups Due",
+                title: "Reminder: Follow-ups Due",
                 body: `You have ${dueFollowups} reminder(s) due today. Click to view them.`
               },
               data: {
-                url: "/todayReminders", // For SW or in-app routing
+                url: "/todayReminders",
                 type: "REMINDER"
               },
               webpush: {
                 notification: {
-                  title: "📌 Reminder: Follow-ups Due",
+                  title: "Reminder: Follow-ups Due",
                   body: `You have ${dueFollowups} reminder(s) due today. Click to view them.`,
                   icon: "/favicon.ico",
                   sound: "default",

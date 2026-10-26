@@ -1,0 +1,6 @@
+[
+{"_id":"6a7c364a8c73690b2c3f367c","leadId":"6a74261c6f1cf1ec8a9a85e1","requestedBy":"69a27b630a49d7bfd7c37b1b","currentOwner":"683a9d5a099f7bf1e0e4a175","adminId":"67e7d02fb0e3a9a66d377e7c","status":"accepted","rejectionReason":null,"createdAt":"2026-08-12T09:00:58.241Z","updatedAt":"2026-08-17T06:55:19.286Z","__v":0},
+{"_id":"6a7c36568c73690b2c3f368c","leadId":"6a74384b6f1cf1ec8a9a8806","requestedBy":"69a27b630a49d7bfd7c37b1b","currentOwner":"683a9d5a099f7bf1e0e4a175","adminId":"67e7d02fb0e3a9a66d377e7c","status":"accepted","rejectionReason":null,"createdAt":"2026-08-12T09:01:10.630Z","updatedAt":"2026-08-17T06:55:21.193Z","__v":0},
+{"_id":"6a7c365a8c73690b2c3f3695","leadId":"6a745aa86f1cf1ec8a9a8bf8","requestedBy":"69a27b630a49d7bfd7c37b1b","currentOwner":"683a9d5a099f7bf1e0e4a175","adminId":"67e7d02fb0e3a9a66d377e7c","status":"accepted","rejectionReason":null,"createdAt":"2026-08-12T09:01:14.035Z","updatedAt":"2026-08-17T06:55:18.082Z","__v":0},
+{"_id":"6a85316a8c73690b2c403f3a","leadId":"6a74384b6f1cf1ec8a9a8806","requestedBy":"69a27b630a49d7bfd7c37b1b","currentOwner":"683a9d5a099f7bf1e0e4a175","adminId":"67e7d02fb0e3a9a66d377e7c","status":"pending","rejectionReason":null,"createdAt":"2026-08-19T04:30:34.311Z","updatedAt":"2026-08-19T04:30:34.311Z","__v":0}
+]

@@ -12,20 +12,21 @@ import {
     verifyOtp,       // New route for OTP verification
     resetPassword    // New route for resetting password
 } from "../controllers/admin.controller.js";
+import { cacheMiddleware, clearCacheOnMutation } from "../middleware/cacheMiddleware.js";
 
 const adminRouter = express.Router();
 
 adminRouter.post("/add/:id", verifyToken, registerAdmin);
 adminRouter.put("/update/:id", verifyToken, updateAdmin);
-adminRouter.post("/login", adminLogin);
-adminRouter.get("/getall", verifyToken, getAllAdmins);
-adminRouter.get("/getone/:id", verifyToken, getAdminById);
+adminRouter.post("/login", clearCacheOnMutation("/get"), adminLogin);
+adminRouter.get("/getall", verifyToken, cacheMiddleware(60), getAllAdmins);
+adminRouter.get("/getone/:id", verifyToken, cacheMiddleware(60), getAdminById);
 adminRouter.put("/block/:id", verifyToken, blockAdmin);
 adminRouter.put("/unblock/:id", verifyToken, unBlockAdmin);
 
 // Password Reset Routes
-adminRouter.post("/forget-password/request", requestReset); // Send OTP
-adminRouter.post("/forget-password/verify", verifyOtp);     // Verify OTP
-adminRouter.post("/forget-password/reset", resetPassword);  // Reset password
+adminRouter.post("/forget-password/request", clearCacheOnMutation("/get"), requestReset); // Send OTP
+adminRouter.post("/forget-password/verify", clearCacheOnMutation("/get"), verifyOtp);     // Verify OTP
+adminRouter.post("/forget-password/reset", clearCacheOnMutation("/get"), resetPassword);  // Reset password
 
 export default adminRouter;

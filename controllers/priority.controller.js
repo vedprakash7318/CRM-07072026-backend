@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import Priority from "../models/priority.model.js";
+import Lead from "../models/lead.model.js";
 
 
 export const addPriority = async (req, res) => {
@@ -41,7 +42,7 @@ export const addPriority = async (req, res) => {
 export const getAllPriorities = async (req, res) => {
     try {
         const addedBy = req.params.id;
-        const priorities = await Priority.find({ addedBy: addedBy }).populate("addedBy");
+        const priorities = await Priority.find({ addedBy: addedBy }).populate("addedBy").lean();
         if (!priorities) {
             return res.status(404).json({
                 message: "Priority Not Found !.",
@@ -49,9 +50,14 @@ export const getAllPriorities = async (req, res) => {
             })
         }
 
+        const withCount = await Promise.all(priorities.map(async (item) => {
+            const count = await Lead.countDocuments({ priority: item._id });
+            return { ...item, usageCount: count };
+        }));
+
         return res.status(201).json({
             message: "These are the registered Priorities !",
-            priorities,
+            priorities: withCount,
             success: true
         });
 

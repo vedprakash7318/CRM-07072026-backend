@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import Services from "../models/service.model.js";
+import Lead from "../models/lead.model.js";
 
 
 export const addservices = async (req, res) => {
@@ -34,7 +35,7 @@ export const addservices = async (req, res) => {
 export const getAllServices = async (req, res) => {
     try {
         const addedBy = req.params.id;
-        const services = await Services.find({ addedBy: addedBy }).populate("addedBy");
+        const services = await Services.find({ addedBy: addedBy }).populate("addedBy").lean();
         if (!services) {
             return res.status(404).json({
                 message: "services Not Found !.",
@@ -42,9 +43,14 @@ export const getAllServices = async (req, res) => {
             })
         }
 
+        const withCount = await Promise.all(services.map(async (item) => {
+            const count = await Lead.countDocuments({ services: item._id });
+            return { ...item, usageCount: count };
+        }));
+
         return res.status(201).json({
             message: "These are the registered Services !",
-            services,
+            services: withCount,
             success: true
         });
 

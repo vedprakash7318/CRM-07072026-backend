@@ -181,9 +181,8 @@ export const acceptTagRequest = async (req, res) => {
     =============================== */
     try {
       const employee = await Employee.findById(employeeId);
-      if (employee?.fcmToken) {
-        await admin.messaging().send({
-          token: employee.fcmToken,
+      if (employee?.fcmTokens && employee.fcmTokens.length > 0) {
+        await admin.messaging().sendEachForMulticast({ tokens: employee.fcmTokens,
           notification: {
             title: "✅ Request Approved",
             body: `Your tag request has been accepted. ${assignedCount} leads assigned.`,
@@ -205,9 +204,8 @@ export const acceptTagRequest = async (req, res) => {
       // Notify removed employees
       for (const [empIdStr, count] of Object.entries(notificationsToSend.removed)) {
         const removedEmp = await Employee.findById(empIdStr);
-        if (removedEmp?.fcmToken) {
-          await admin.messaging().send({
-            token: removedEmp.fcmToken,
+        if (removedEmp?.fcmTokens && removedEmp.fcmTokens.length > 0) {
+          await admin.messaging().sendEachForMulticast({ tokens: removedEmp.fcmTokens,
             notification: {
               title: "🔔 Lead Unassigned",
               body: `${count} lead(s) have been reassigned due to a tag request.`,
@@ -272,9 +270,8 @@ export const rejectTagRequest = async (req, res) => {
     try {
       const employee = await Employee.findById(request.employeeId);
 
-      if (employee?.fcmToken) {
-        await admin.messaging().send({
-          token: employee.fcmToken,
+      if (employee?.fcmTokens && employee.fcmTokens.length > 0) {
+        await admin.messaging().sendEachForMulticast({ tokens: employee.fcmTokens,
           notification: {
             title: "❌ Request Rejected",
             body:

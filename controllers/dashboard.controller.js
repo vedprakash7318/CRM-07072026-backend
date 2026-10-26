@@ -4,8 +4,10 @@ import Tag from "../models/tag.modal.js";
 import Priority from "../models/priority.model.js";
 import LeadSources from "../models/leadSources.model.js";
 import Followup from "../models/followup.model.js";
+import EmployeeReportNew from "../models/employeeReportNew.model.js";
 import mongoose from "mongoose";
 import moment from "moment";
+import { getEmployeeDashboardStats } from "../utils/employeeStats.js";
 
 export const getDashboardStats = async (req, res) => {
   try {
@@ -158,143 +160,51 @@ export const employeeDashboard = async (req, res) => {
     const employeeData = await Employee.findById(employeeObjectId);
     const target = employeeData ? (employeeData.target || 80) : 80;
 
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+    const stats = await getEmployeeDashboardStats(employeeObjectId);
 
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
+    const completionRate = stats.totalLeads > 0 ? Math.round((stats.closedLeads / stats.totalLeads) * 100) : 0;
+    const achievement = target > 0 ? Math.round((stats.todayFollowups / target) * 100) : 0;
 
-    const totalLeads = await Lead.countDocuments({
-      leadAssignedTo: employeeObjectId,
+    const leadsForTags = await Lead.find({
+      $or: [
+        { leadAssignedTo: employeeObjectId },
+        { addedBy: employeeObjectId, addedByType: "Employee" }
+      ],
       deleted: false
-    });
+    }).populate({
+      path: 'tags',
+      populate: { path: 'parentId' }
+    }).select('tags').lean();
 
-    const closedLeads = await Lead.countDocuments({
-      leadAssignedTo: employeeObjectId,
-      closed: true,
-      negative: false,
-      deleted: false
-    });
-
-    const negativeLeads = await Lead.countDocuments({
-      leadAssignedTo: employeeObjectId,
-      negative: true,
-      closed: false,
-      deleted: false
-    });
-
-    const pendingLeadsResult = await Lead.aggregate([
-      {
-        $match: {
-          leadAssignedTo: employeeObjectId,
-          closed: false,
-          deleted: false,
-          negative: false,
-        }
-      },
-      {
-        $lookup: {
-          from: "followups",
-          let: { leadId: "$_id" },
-          pipeline: [
-            {
-              $match: {
-                $expr: { $eq: ["$leadId", "$$leadId"] },
-              },
-            },
-            { $sort: { createdAt: -1 } },
-            { $limit: 1 },
-          ],
-          as: "latestFollowup",
-        },
-      },
-      {
-        $match: {
-          $or: [
-            { latestFollowup: { $eq: [] } },
-            {
-              "latestFollowup.0.followedBy": {
-                $ne: employeeObjectId,
-              },
-            },
-          ],
-        },
-      },
-      { $count: "total" }
-    ]);
-
-    const pendingLeads = pendingLeadsResult[0]?.total || 0;
-    const completionRate = totalLeads > 0 ? Math.round((closedLeads / totalLeads) * 100) : 0;
-
-    const totalFollowups = await Followup.countDocuments({
-      followedBy: employeeObjectId
-    });
-
-    const todayFollowups = await Followup.countDocuments({
-      followedBy: employeeObjectId,
-      createdAt: {
-        $gte: todayStart,
-        $lte: todayEnd
+    const collegeNames = new Set();
+    leadsForTags.forEach(lead => {
+      if (lead.tags && Array.isArray(lead.tags)) {
+        lead.tags.forEach(tag => {
+          if (tag && tag.tagName && tag.parentId && tag.parentId.tagParentName) {
+            if (tag.parentId.tagParentName.toLowerCase() === 'college' || tag.parentId.tagParentName.toLowerCase() === 'colleges') {
+              collegeNames.add(tag.tagName);
+            }
+          }
+        });
       }
     });
-
-    const todayRemindersResult = await Followup.aggregate([
-      { $sort: { createdAt: -1 } },
-      { $group: { _id: "$leadId", latestFollowup: { $first: "$$ROOT" } } },
-      { $replaceRoot: { newRoot: "$latestFollowup" } },
-      { $match: { nextFollowupDate: { $gte: todayStart, $lte: todayEnd } } },
-      { $lookup: { from: "leads", localField: "leadId", foreignField: "_id", as: "lead" } },
-      { $unwind: "$lead" },
-      {
-        $match: {
-          "lead.deleted": false,
-          "lead.closed": false,
-          "lead.negative": false,
-          "lead.leadAssignedTo": employeeObjectId
-        }
-      }
-    ]);
-
-    const todayReminders = todayRemindersResult.length;
-
-
-    // 🔴 MISSED LEADS - DYNAMIC ONLY
-    const missedLeadsResult = await Followup.aggregate([
-      { $sort: { createdAt: -1 } },
-      { $group: { _id: "$leadId", latestFollowup: { $first: "$$ROOT" } } },
-      { $replaceRoot: { newRoot: "$latestFollowup" } },
-      { $match: { nextFollowupDate: { $lt: todayStart } } },
-      { $lookup: { from: "leads", localField: "leadId", foreignField: "_id", as: "lead" } },
-      { $unwind: "$lead" },
-      {
-        $match: {
-          "lead.deleted": false,
-          "lead.closed": false,
-          "lead.negative": false,
-          "lead.leadAssignedTo": employeeObjectId
-        }
-      }
-    ]);
-
-    const missedLeads = missedLeadsResult.length;
-
-
-    const achievement = target > 0 ? Math.round((todayFollowups / target) * 100) : 0;
+    const assignedColleges = Array.from(collegeNames);
 
     res.status(200).json({
       success: true,
       data: {
-        totalLeads,
-        pendingLeads,
-        closedLeads,
-        negativeLeads,
-        totalFollowups,
-        todayFollowups,
-        todayReminders,
-        missedLeads,
+        totalLeads: stats.totalLeads,
+        pendingLeads: stats.pendingLeads,
+        closedLeads: stats.closedLeads,
+        negativeLeads: stats.negativeLeads,
+        totalFollowups: stats.totalFollowups,
+        todayFollowups: stats.todayFollowups,
+        todayReminders: stats.todayReminders,
+        missedLeads: stats.missedLeads,
         completionRate,
         target,
-        achievement
+        achievement,
+        assignedColleges
       }
     });
 
@@ -359,61 +269,21 @@ export const employeeDashboardChart = async (req, res) => {
       }
     }
 
-    // 1. Fetch Closed Leads
-    const closedLeads = await Lead.find({
-      leadAssignedTo: employeeObjectId,
-      closed: true,
-      negative: false,
-      deleted: false,
-      updatedAt: { $gte: startDate.toDate() }
+    // Fetch snapshot data
+    const snapshots = await EmployeeReportNew.find({
+      employeeId: employeeObjectId,
+      reportDate: { $gte: startDate.toDate() }
     });
 
-    closedLeads.forEach(lead => {
-      const d = moment(lead.updatedAt);
+    snapshots.forEach(snapshot => {
+      const d = moment(snapshot.reportDate);
       const bucket = generateLabels.find(b => d.isBetween(b.start, b.end, null, '[]'));
-      if (bucket) bucket.Closed += 1;
-    });
-
-    // 2. Dynamic Calculation for Missed Leads
-    const todayStart = moment().startOf('day');
-    const dynamicMissedResult = await Followup.aggregate([
-      { $sort: { createdAt: -1 } },
-      { $group: { _id: "$leadId", latestFollowup: { $first: "$$ROOT" } } },
-      { $replaceRoot: { newRoot: "$latestFollowup" } },
-      { $match: { nextFollowupDate: { $lt: todayStart.toDate() } } },
-      { $lookup: { from: "leads", localField: "leadId", foreignField: "_id", as: "lead" } },
-      { $unwind: "$lead" },
-      {
-        $match: {
-          "lead.deleted": false,
-          "lead.closed": false,
-          "lead.negative": false,
-          "lead.leadAssignedTo": employeeObjectId
-        }
-      }
-    ]);
-
-    dynamicMissedResult.forEach(missed => {
-      const bucket = generateLabels.find(b => moment(missed.nextFollowupDate).isBetween(b.start, b.end, null, '[]'));
       if (bucket) {
-        if (!bucket.missedSet) bucket.missedSet = new Set();
-        bucket.missedSet.add(missed.lead._id.toString());
-      }
-    });
-
-    // 4. Fetch Followups for Reminders
-    const followups = await Followup.find({
-      followedBy: employeeObjectId,
-      nextFollowupDate: { $gte: startDate.toDate() }
-    }).populate('leadId');
-
-    followups.forEach(f => {
-      if (f.leadId && !f.leadId.deleted && !f.leadId.closed && !f.leadId.negative) {
-        const d = moment(f.nextFollowupDate);
-        const bucket = generateLabels.find(b => d.isBetween(b.start, b.end, null, '[]'));
-        if (bucket) {
-          bucket.Reminders += 1;
-        }
+        bucket.Closed += (snapshot.closedLeads || 0);
+        bucket.Missed = (bucket.Missed || 0) + (snapshot.missedLeads || 0);
+        bucket.Reminders += (snapshot.reminders || 0);
+        bucket.Negative = (bucket.Negative || 0) + (snapshot.negativeLeads || 0);
+        bucket.Followups = (bucket.Followups || 0) + (snapshot.followups || 0);
       }
     });
 
@@ -422,8 +292,10 @@ export const employeeDashboardChart = async (req, res) => {
       data: generateLabels.map(b => ({
         name: b.label,
         Reminders: b.Reminders,
-        Missed: b.missedSet ? b.missedSet.size : 0,
-        Closed: b.Closed
+        Missed: b.Missed,
+        Closed: b.Closed,
+        Negative: b.Negative || 0,
+        Followups: b.Followups || 0
       }))
     });
 

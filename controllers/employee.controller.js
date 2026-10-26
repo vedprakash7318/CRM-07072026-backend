@@ -8,6 +8,7 @@ import jwt from "jsonwebtoken";
 
 import admin from "../Firebase/firebaseAdmin.js";
 import { getPendingLeadCount } from "../utils/pendingLeadCount.js";
+import { getEmployeeDashboardStats } from "../utils/employeeStats.js";
 
 export const addEmployee = async (req, res) => {
   try {
@@ -101,7 +102,7 @@ export const updateEmployee = async (req, res) => {
       empZipCode,
       empCountry,
       blocked,
-      target // ✅ added
+      target, // ✅ added
     } = req.body;
 
     const employee = await Employee.findById(employeeId);
@@ -213,34 +214,37 @@ export const loginEmployee = async (req, res) => {
        🔔 PENDING LEAD NOTIFICATION
     =============================== */
     try {
-      if (isExistEmployee.fcmToken) {
-        const pendingCount = await getPendingLeadCount(isExistEmployee._id);
-
-        if (pendingCount > 0) {
-          await admin.messaging().send({
-            token: isExistEmployee.fcmToken,
-            notification: {
-              title: "📌 Pending Leads Alert",
-              body: `You have ${pendingCount} pending leads to follow up`,
-            },
-            data: {
-              url: "/pending",
-              type: "PENDING_LEAD"
-            },
-            webpush: {
+      if (isExistEmployee.fcmTokens && isExistEmployee.fcmTokens.length > 0) {
+        // Fire and forget to avoid blocking login
+        getPendingLeadCount(isExistEmployee._id).then(pendingCount => {
+          if (pendingCount > 0) {
+            return admin.messaging().sendEachForMulticast({
+              tokens: isExistEmployee.fcmTokens,
               notification: {
                 title: "📌 Pending Leads Alert",
                 body: `You have ${pendingCount} pending leads to follow up`,
-                icon: "/favicon.ico",
-                sound: "default",
-                requireInteraction: true,
               },
-              fcmOptions: {
-                link: "/pending"
+              data: {
+                url: "/pending",
+                type: "PENDING_LEAD"
+              },
+              webpush: {
+                notification: {
+                  title: "📌 Pending Leads Alert",
+                  body: `You have ${pendingCount} pending leads to follow up`,
+                  icon: "/favicon.ico",
+                  sound: "default",
+                  requireInteraction: true,
+                },
+                fcmOptions: {
+                  link: "/pending"
+                }
               }
-            }
-          });
-        }
+            });
+          }
+        }).catch(notifyError => {
+          console.log("Pending lead notify error:", notifyError.message);
+        });
       }
     } catch (notifyError) {
       console.log("Pending lead notify error:", notifyError.message);
@@ -309,7 +313,11 @@ export const getAllEmployees = async (req, res) => {
         if (!nopage) {
             queryBuilder = queryBuilder.skip(skip).limit(limit);
         }
-        const employees = await queryBuilder;
+        const employees = await queryBuilder.lean();
+
+        for (const emp of employees) {
+            emp.totalAssigned = await Lead.countDocuments({ leadAssignedTo: emp._id, deleted: false });
+        }
         
         if (!employees || employees.length === 0) {
             return res.status(200).json({
@@ -637,7 +645,7 @@ export const saveFCMToken = async (req, res) => {
     console.log("🔑 Saving FCM token:", { employeeId, fcmToken: fcmToken?.substring(0, 20) + "..." });
 
     const updated = await Employee.findByIdAndUpdate(employeeId, {
-      fcmToken
+      $addToSet: { fcmTokens: fcmToken }
     }, { new: true });
     
     if (!updated) {
@@ -657,73 +665,7 @@ export const getEmployeeReport = async (req, res) => {
   try {
     const employeeId = new mongoose.Types.ObjectId(req.params.id);
 
-    // Date range for today's followups
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
-
-    // 1. Total assigned leads (including closed/negative, excluding deleted)
-    const totalAssigned = await Lead.countDocuments({
-      leadAssignedTo: employeeId,
-      deleted: false
-    });
-
-    // 2. Closed leads (assigned to employee, closed: true, deleted: false)
-    const closedLeads = await Lead.countDocuments({
-      leadAssignedTo: employeeId,
-      closed: true,
-      deleted: false
-    });
-
-    // 3. Negative leads (assigned to employee, negative: true, deleted: false)
-    const negativeLeads = await Lead.countDocuments({
-      leadAssignedTo: employeeId,
-      negative: true,
-      deleted: false
-    });
-
-    // 4. Pending leads count (matching getPendingLeadsByEmployee logic)
-    const pendingLeadsResult = await Lead.aggregate([
-      {
-        $match: {
-          leadAssignedTo: employeeId,
-          closed: false,
-          deleted: false,
-          negative: false,
-        }
-      },
-      {
-        $lookup: {
-          from: "followups",
-          let: { leadId: "$_id" },
-          pipeline: [
-            {
-              $match: {
-                $expr: { $eq: ["$leadId", "$$leadId"] },
-              },
-            },
-            { $sort: { createdAt: -1 } },
-            { $limit: 1 },
-          ],
-          as: "latestFollowup",
-        },
-      },
-      {
-        $match: {
-          $or: [
-            { latestFollowup: { $eq: [] } },
-            {
-              "latestFollowup.0.followedBy": {
-                $ne: employeeId,
-              },
-            },
-          ],
-        },
-      },
-      { $count: "total" }
-    ]);
-    const pendingLeadsCount = pendingLeadsResult[0]?.total || 0;
+    const stats = await getEmployeeDashboardStats(employeeId);
 
     // 5. Leads added by employee
     const leadsAdded = await Lead.countDocuments({
@@ -732,111 +674,6 @@ export const getEmployeeReport = async (req, res) => {
       deleted: false
     });
 
-    // 6. Today's followups
-    const todaysFollowups = await Followup.countDocuments({
-      followedBy: employeeId,
-      createdAt: { $gte: todayStart, $lte: todayEnd }
-    });
-
-    // 7. Total followups
-    const totalFollowups = await Followup.countDocuments({
-      followedBy: employeeId
-    });
-
-    // 7a. Today's reminders (using assignment time filter)
-    const todayRemindersResult = await Followup.aggregate([
-      { $sort: { createdAt: -1 } },
-      {
-        $group: {
-          _id: "$leadId",
-          latestFollowup: { $first: "$$ROOT" }
-        }
-      },
-      { $replaceRoot: { newRoot: "$latestFollowup" } },
-      {
-        $match: {
-          nextFollowupDate: { $gte: todayStart, $lte: todayEnd }
-        }
-      },
-      {
-        $lookup: {
-          from: "leads",
-          localField: "leadId",
-          foreignField: "_id",
-          as: "lead"
-        }
-      },
-      { $unwind: "$lead" },
-      {
-        $match: {
-          "lead.deleted": false,
-          "lead.closed": false,
-          "lead.negative": false,
-          "lead.leadAssignedTo": employeeId
-        }
-      }
-    ]);
-
-    const todayReminders = todayRemindersResult.length;
-
-    // 7b. Missed leads (using assignment time filter)
-    const missedLeadsResult = await Followup.aggregate([
-      { $sort: { createdAt: -1 } },
-      {
-        $group: {
-          _id: "$leadId",
-          latestFollowup: { $first: "$$ROOT" }
-        }
-      },
-      { $replaceRoot: { newRoot: "$latestFollowup" } },
-      {
-        $match: {
-          nextFollowupDate: { $lt: todayStart }
-        }
-      },
-      {
-        $lookup: {
-          from: "leads",
-          localField: "leadId",
-          foreignField: "_id",
-          as: "lead"
-        }
-      },
-      { $unwind: "$lead" },
-      {
-        $match: {
-          "lead.deleted": false,
-          "lead.closed": false,
-          "lead.negative": false,
-          "lead.leadAssignedTo": employeeId
-        }
-      }
-    ]);
-
-    let missedLeads = 0;
-    for (const item of missedLeadsResult) {
-      const lead = item.lead;
-      let assignedAt = null;
-      if (lead.assignedAtMap) {
-        assignedAt = lead.assignedAtMap[employeeId.toString()] || 
-                     (lead.assignedAtMap instanceof Map ? lead.assignedAtMap.get(employeeId.toString()) : lead.assignedAtMap.get?.(employeeId.toString()));
-      }
-      if (!assignedAt) {
-        assignedAt = lead.leadAssignedAt || lead.createdAt;
-      }
-
-      const hasFollowup = await Followup.exists({
-        leadId: lead._id,
-        followedBy: employeeId,
-        _id: { $ne: item._id },
-        createdAt: { $gt: new Date(assignedAt) }
-      });
-
-      if (!hasFollowup) {
-        missedLeads++;
-      }
-    }
-
     // 8. Unique tag names for leads assigned to or added by employee
     const leadsForTags = await Lead.find({
       $or: [
@@ -844,33 +681,48 @@ export const getEmployeeReport = async (req, res) => {
         { addedBy: employeeId, addedByType: "Employee" }
       ],
       deleted: false
-    }).populate('tags').select('tags').lean();
+    }).populate({
+      path: 'tags',
+      populate: { path: 'parentId' }
+    }).select('tags').lean();
 
     const tagNames = new Set();
+    const collegeNames = new Set();
+
     leadsForTags.forEach(lead => {
       if (lead.tags && Array.isArray(lead.tags)) {
         lead.tags.forEach(tag => {
           if (tag && tag.tagName) {
             tagNames.add(tag.tagName);
+            
+            // Check if tagParentName is College
+            if (tag.parentId && tag.parentId.tagParentName) {
+              const pName = tag.parentId.tagParentName.toLowerCase();
+              if (pName === 'college' || pName === 'colleges') {
+                collegeNames.add(tag.tagName);
+              }
+            }
           }
         });
       }
     });
     const uniqueTagNames = Array.from(tagNames);
+    const assignedColleges = Array.from(collegeNames);
 
     return res.status(200).json({
       success: true,
       report: {
-        totalAssigned,
-        closedLeads,
-        pendingLeads: pendingLeadsCount,
-        negativeLeads,
+        totalAssigned: stats.totalLeads,
+        closedLeads: stats.closedLeads,
+        pendingLeads: stats.pendingLeads,
+        negativeLeads: stats.negativeLeads,
         leadsAdded,
-        todaysFollowups,
-        totalFollowups,
-        todayReminders,
-        missedLeads,
-        uniqueTagNames
+        todaysFollowups: stats.todayFollowups,
+        totalFollowups: stats.totalFollowups,
+        todayReminders: stats.todayReminders,
+        missedLeads: stats.missedLeads,
+        uniqueTagNames,
+        assignedColleges
       }
     });
 

@@ -4,6 +4,7 @@ import Employee from "../models/employee.model.js";
 import Notification from "../models/notification.model.js";
 import admin from "../Firebase/firebaseAdmin.js";
 
+
 // Run at 10 AM and 4 PM (10:00, 16:00)
 cron.schedule(
   "0 10,16 * * *",
@@ -15,7 +16,7 @@ cron.schedule(
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
 
-      const employees = await Employee.find({ blocked: false, fcmToken: { $ne: null } });
+      const employees = await Employee.find({ blocked: false, fcmTokens: { $exists: true, $not: { $size: 0 } } });
 
       for (const emp of employees) {
         const employeeId = emp._id;
@@ -30,7 +31,8 @@ cron.schedule(
           { $replaceRoot: { newRoot: "$latestFollowup" } },
           {
             $match: {
-              nextFollowupDate: { $lt: todayStart }
+              nextFollowupDate: { $lt: todayStart, $ne: null },
+              followedBy: employeeId
             }
           },
           {
@@ -47,39 +49,31 @@ cron.schedule(
               "lead.deleted": false,
               "lead.closed": false,
               "lead.negative": false,
+              "lead.publicLead": { $ne: true },
               "lead.leadAssignedTo": employeeId
             }
           }
         ]);
 
-        let missedLeadsCount = 0;
-        for (const item of missedLeadsResult) {
-          const lead = item.lead;
-          let assignedAt = null;
-          if (lead.assignedAtMap) {
-            assignedAt = lead.assignedAtMap[employeeId.toString()] || 
-                         (lead.assignedAtMap instanceof Map ? lead.assignedAtMap.get(employeeId.toString()) : lead.assignedAtMap.get?.(employeeId.toString()));
-          }
-          if (!assignedAt) {
-            assignedAt = lead.leadAssignedAt || lead.createdAt;
-          }
+        let missedLeadsCount = missedLeadsResult.length;
+        let newMissedCount = 0;
+        const missedFollowupIds = [];
 
-          const hasFollowup = await Followup.exists({
-            leadId: lead._id,
-            followedBy: employeeId,
-            _id: { $ne: item._id },
-            createdAt: { $gt: new Date(assignedAt) }
-          });
-
-          if (!hasFollowup) {
-            missedLeadsCount++;
+        for (const leadResult of missedLeadsResult) {
+          if (!leadResult.missedCounted) {
+            newMissedCount++;
+            missedFollowupIds.push(leadResult._id);
           }
+        }
+
+        if (newMissedCount > 0) {
+          await Followup.updateMany({ _id: { $in: missedFollowupIds } }, { $set: { missedCounted: true } });
         }
 
         if (missedLeadsCount > 0) {
           try {
-            await admin.messaging().send({
-              token: emp.fcmToken,
+            await admin.messaging().sendEachForMulticast({
+              tokens: emp.fcmTokens,
               notification: {
                 title: "🚨 Missed Leads Alert",
                 body: `You have ${missedLeadsCount} missed lead(s). Please follow up ASAP.`

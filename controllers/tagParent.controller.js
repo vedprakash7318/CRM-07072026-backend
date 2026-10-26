@@ -1,4 +1,5 @@
 import TagParent from "../models/tagParent.model.js";
+import Tag from "../models/tag.modal.js";
 
 // CREATE
 export const createTagParent = async (req, res) => {
@@ -27,11 +28,16 @@ export const createTagParent = async (req, res) => {
 export const getAllTagParents = async (req, res) => {
   try {
     const data = await TagParent.find()
-      .populate("addedBy");
+      .populate("addedBy").lean();
+
+    const dataWithCount = await Promise.all(data.map(async (item) => {
+      const count = await Tag.countDocuments({ parentId: item._id });
+      return { ...item, usageCount: count };
+    }));
 
     res.status(200).json({
       success: true,
-      data
+      data: dataWithCount
     });
   } catch (error) {
     res.status(500).json({

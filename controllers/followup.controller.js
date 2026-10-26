@@ -1,6 +1,7 @@
 import Followup from "../models/followup.model.js";
 import Lead from "../models/lead.model.js";
 import Employee from "../models/employee.model.js";
+import ExcelLead from "../models/excelLead.model.js";
 
 import mongoose from 'mongoose';
 
@@ -63,25 +64,31 @@ import mongoose from 'mongoose';
 
 export const addFollowup = async (req, res) => {
   try {
-    const leadId = req.params.id;
-    const { status, service, followedBy, message, reminder } = req.body;
+    const targetId = req.params.id; // Could be leadId or excelLeadId
+    const { status, service, followedBy, message, reminder, clientSpoken, isExcelLead } = req.body;
 
-    if (!leadId || !status || !service || !followedBy || !message) {
+    if (!targetId || !status || !service || !followedBy || !message) {
       return res.status(400).json({
         message: "Some required fields are missing!",
         success: false,
       });
     }
 
-    const lead = await Lead.findById(leadId);
-    if (!lead) {
+    let targetLead = null;
+    if (isExcelLead) {
+      targetLead = await ExcelLead.findById(targetId);
+    } else {
+      targetLead = await Lead.findById(targetId);
+    }
+
+    if (!targetLead) {
       return res.status(400).json({
         message: "Invalid Lead id!",
         success: false,
       });
     }
 
-    if (lead.deleted || lead.negative || lead.closed) {
+    if (targetLead.deleted || targetLead.negative || targetLead.closed) {
       return res.status(400).json({
         message: "Lead is Deleted / Negative / Closed",
         success: false,
@@ -97,24 +104,46 @@ export const addFollowup = async (req, res) => {
     }
 
     // 1️⃣ Create follow-up
-    const newFollowup = await Followup.create({
-      leadId,
+    const followupData = {
       followupStatus: status,
       service,
       followedBy,
       followupMessage: message,
+      clientSpoken: !!clientSpoken,
       nextFollowupDate: reminder ? new Date(reminder) : null,
-    });
+    };
+
+    if (isExcelLead) {
+      followupData.excelLeadId = targetId;
+    } else {
+      followupData.leadId = targetId;
+    }
+
+    const newFollowup = await Followup.create(followupData);
 
     // 2️⃣ Update lead status + service
-    await Lead.findByIdAndUpdate(
-      leadId,
-      {
-        services: service,
-        leadStatus: status,
-      },
-      { new: true }
-    );
+    if (isExcelLead) {
+      await ExcelLead.findByIdAndUpdate(
+        targetId,
+        {
+          service: service,
+          leadStatus: status,
+        },
+        { new: true }
+      );
+    } else {
+      await Lead.findByIdAndUpdate(
+        targetId,
+        {
+          services: service,
+          leadStatus: status,
+        },
+        { new: true }
+      );
+    }
+
+    // NOTE: If EmployeeReportNew update logic runs via chron/event, it will pick this Followup up.
+    // If it's done synchronously, make sure it's updated here (looks like it's handled via cron in your system since it's not here)
 
     return res.status(201).json({
       message: "Follow-up added & Lead updated successfully!",
@@ -212,12 +241,13 @@ export const getFollowupByAddedBy = async (req, res) => {
 export const getAllFollowup = async(req,res)=>{
     try {
         const leadId=req.params.id
-        const followups = await Followup.find({leadId:leadId})
+        const followups = await Followup.find({
+            $or: [{ leadId: leadId }, { excelLeadId: leadId }]
+        })
         .populate('followedBy')
         .populate('service')
         .populate('followupStatus')
-        .sort({ createdAt: -1 });;
-        // console.log(followups);
+        .sort({ createdAt: -1 });
         
         return res.status(200).json({   
             message:"Followup Fond!.",

@@ -1,4 +1,5 @@
 import LeadSources from "../models/leadSources.model.js";
+import Lead from "../models/lead.model.js";
 
 export const addLeadSources = async (req, res) => {
     try {   
@@ -31,7 +32,7 @@ export const addLeadSources = async (req, res) => {
 export const getAllLeadSources = async (req, res) => {
     try {
         const addedBy = req.params.id;
-        const leadSources = await LeadSources.find({ addedBy: addedBy }).populate("addedBy");
+        const leadSources = await LeadSources.find({ addedBy: addedBy }).populate("addedBy").lean();
         if (!leadSources) {
             return res.status(404).json({
                 message: "leadSources Not Found !.",
@@ -39,9 +40,14 @@ export const getAllLeadSources = async (req, res) => {
             })
         }
 
+        const withCount = await Promise.all(leadSources.map(async (item) => {
+            const count = await Lead.countDocuments({ sources: item._id });
+            return { ...item, usageCount: count };
+        }));
+
         return res.status(201).json({
             message: "These are the registered Lead Sources !",
-            leadSources,
+            leadSources: withCount,
             success: true
         });
 

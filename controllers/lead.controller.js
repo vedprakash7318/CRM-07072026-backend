@@ -1086,6 +1086,9 @@ export const getPendingLeadsByEmployee = async (req, res) => {
                 $ne: employeeId,
               },
             },
+            {
+              "latestFollowup.0.clientSpoken": false
+            }
           ],
         },
       },
@@ -1384,6 +1387,7 @@ export const getMissedLeadsByEmployee = async (req, res) => {
       "lead.deleted": false,
       "lead.closed": false,
       "lead.negative": false,
+      "lead.publicLead": { $ne: true },
       "lead.leadAssignedTo": employeeId
     };
     if (search) {
@@ -1402,7 +1406,12 @@ export const getMissedLeadsByEmployee = async (req, res) => {
         }
       },
       { $replaceRoot: { newRoot: "$latestFollowup" } },
-      { $match: { nextFollowupDate: { $lt: todayStart } } },
+      {
+        $match: {
+          nextFollowupDate: { $lt: todayStart, $ne: null },
+          followedBy: employeeId
+        }
+      },
       {
         $lookup: {
           from: "leads",
@@ -1465,541 +1474,6 @@ export const getMissedLeadsByEmployee = async (req, res) => {
     });
   }
 };
-
-// export const getPendingLeadsByEmployee = async (req, res) => {
-//   try {
-//     const employeeId = req.params.id;
-
-//     const leads = await Lead.aggregate([
-//       {
-//         $match: {
-//           leadAssignedTo: new mongoose.Types.ObjectId(employeeId),
-//           closed: false,
-//           deleted: false,
-//           negative: false,
-//         },
-//       },
-
-//       // 🔹 Latest Followup
-//       {
-//         $lookup: {
-//           from: "followups",
-//           let: { leadId: "$_id" },
-//           pipeline: [
-//             {
-//               $match: {
-//                 $expr: { $eq: ["$leadId", "$$leadId"] },
-//               },
-//             },
-//             { $sort: { createdAt: -1 } },
-//             { $limit: 1 },
-//           ],
-//           as: "latestFollowup",
-//         },
-//       },
-
-//       // 🔍 Exclude self-followed latest leads
-//       {
-//         $match: {
-//           $or: [
-//             { latestFollowup: { $eq: [] } },
-//             {
-//               "latestFollowup.0.followedBy": {
-//                 $ne: new mongoose.Types.ObjectId(employeeId),
-//               },
-//             },
-//           ],
-//         },
-//       },
-
-//       // 🔹 Lead Status
-//       {
-//         $lookup: {
-//           from: "leadstatuses",
-//           localField: "leadStatus",
-//           foreignField: "_id",
-//           as: "leadStatus",
-//         },
-//       },
-//       { $unwind: { path: "$leadStatus", preserveNullAndEmptyArrays: true } },
-
-//       // 🔹 Priority
-//       {
-//         $lookup: {
-//           from: "priorities",
-//           localField: "priority",
-//           foreignField: "_id",
-//           as: "priority",
-//         },
-//       },
-//       { $unwind: { path: "$priority", preserveNullAndEmptyArrays: true } },
-
-//       // ✅ SERVICE POPULATE
-//       {
-//         $lookup: {
-//           from: "services",
-//           localField: "service",
-//           foreignField: "_id",
-//           as: "service",
-//         },
-//       },
-//       { $unwind: { path: "$service", preserveNullAndEmptyArrays: true } },
-
-//       // 🔹 Source
-//       {
-//         $lookup: {
-//           from: "leadsources",
-//           localField: "sources",
-//           foreignField: "_id",
-//           as: "sources",
-//         },
-//       },
-//       { $unwind: { path: "$sources", preserveNullAndEmptyArrays: true } },
-
-//       // 🔹 Tags
-//       {
-//         $lookup: {
-//           from: "tags",
-//           localField: "tags",
-//           foreignField: "_id",
-//           as: "tags",
-//         },
-//       },
-
-//       // 🔹 Assigned User
-//       {
-//         $lookup: {
-//           from: "users",
-//           localField: "leadAssignedTo",
-//           foreignField: "_id",
-//           as: "leadAssignedTo",
-//         },
-//       },
-//       { $unwind: { path: "$leadAssignedTo", preserveNullAndEmptyArrays: true } },
-//     ]);
-
-//     if (!leads || leads.length === 0) {
-//       return res.status(404).json({
-//         message: "No pending leads found!",
-//         success: false,
-//       });
-//     }
-
-//     return res.status(200).json({
-//       message: "Fetched pending leads successfully!",
-//       success: true,
-//       leads,
-//     });
-//   } catch (error) {
-//     return res.status(500).json({
-//       message: error.message || "Internal Server Error",
-//       success: false,
-//     });
-//   }
-// };
-
-
-
-//dhyj
-// server/controllers/leadController.js
-
-
-// export const getPendingLeadsByEmployee = async (req, res) => {
-//   try {
-
-//     const employeeId = new mongoose.Types.ObjectId(req.params.id);
-
-//     const page = parseInt(req.query.page) || 1;
-//     const limit = parseInt(req.query.limit) || 10;
-//     const skip = (page - 1) * limit;
-
-//     const search = req.query.search || "";
-//     const tagNames = req.query.tags ? req.query.tags.split(",") : [];
-//     const statusIds = req.query.status ? req.query.status.split(",") : [];
-//     const serviceIds = req.query.service ? req.query.service.split(",") : [];
-
-//     // ===============================
-//     // BASE FILTER
-//     // ===============================
-
-//     const matchStage = {
-//       leadAssignedTo: employeeId,
-//       deleted: false,
-//       closed: false,
-//       negative: false
-//     };
-
-//     // SEARCH
-//     if (search) {
-//       matchStage.$or = [
-//         { name: { $regex: search, $options: "i" } },
-//         { phone: { $regex: search, $options: "i" } },
-//         { email: { $regex: search, $options: "i" } }
-//       ];
-//     }
-
-//     // TAG FILTER
-//     if (tagNames.length > 0) {
-
-//       const tagDocs = await Tag.find(
-//         { tagName: { $in: tagNames } },
-//         { _id: 1 }
-//       );
-
-//       const tagIds = tagDocs.map(tag => tag._id);
-
-//       if (tagIds.length) {
-//         matchStage.tags = { $in: tagIds };
-//       }
-//     }
-
-//     // STATUS FILTER
-//     if (statusIds.length > 0) {
-//       matchStage.leadStatus = {
-//         $in: statusIds.map(id => new mongoose.Types.ObjectId(id))
-//       };
-//     }
-
-//     // SERVICE FILTER
-//     if (serviceIds.length > 0) {
-//       matchStage.services = {
-//         $in: serviceIds.map(id => new mongoose.Types.ObjectId(id))
-//       };
-//     }
-
-//     // ===============================
-//     // TOTAL COUNT
-//     // ===============================
-
-//     const totalRecords = await Lead.countDocuments(matchStage);
-
-//     // ===============================
-//     // AGGREGATION
-//     // ===============================
-
-//     const leads = await Lead.aggregate([
-
-//       { $match: matchStage },
-
-//       { $sort: { createdAt: -1 } },
-
-//       { $skip: skip },
-
-//       { $limit: limit },
-
-//       // TAGS
-//       {
-//         $lookup: {
-//           from: "tags",
-//           localField: "tags",
-//           foreignField: "_id",
-//           as: "tags"
-//         }
-//       },
-
-//       // STATUS
-//       {
-//         $lookup: {
-//           from: "leadstatuses",
-//           localField: "leadStatus",
-//           foreignField: "_id",
-//           as: "leadStatus"
-//         }
-//       },
-
-//       // SERVICES
-//       {
-//         $lookup: {
-//           from: "services",
-//           localField: "services",
-//           foreignField: "_id",
-//           as: "services"
-//         }
-//       },
-
-//       // ===============================
-//       // LATEST FOLLOWUP ADD
-//       // ===============================
-
-//       {
-//         $lookup: {
-//           from: "followups",
-//           let: { leadId: "$_id" },
-//           pipeline: [
-//             {
-//               $match: {
-//                 $expr: { $eq: ["$leadId", "$$leadId"] }
-//               }
-//             },
-//             { $sort: { createdAt: -1 } },
-//             { $limit: 1 }
-//           ],
-//           as: "latestFollowup"
-//         }
-//       },
-
-//       {
-//         $addFields: {
-//           latestFollowup: { $arrayElemAt: ["$latestFollowup", 0] }
-//         }
-//       },
-
-//       // UNWIND STATUS
-//       {
-//         $unwind: {
-//           path: "$leadStatus",
-//           preserveNullAndEmptyArrays: true
-//         }
-//       },
-
-//       // UNWIND SERVICES
-//       {
-//         $unwind: {
-//           path: "$services",
-//           preserveNullAndEmptyArrays: true
-//         }
-//       }
-
-//     ]);
-
-//     // ===============================
-//     // RESPONSE
-//     // ===============================
-
-//     res.status(200).json({
-//       success: true,
-//       leads,
-//       pagination: {
-//         totalRecords,
-//         totalPages: Math.ceil(totalRecords / limit),
-//         currentPage: page,
-//         limit
-//       }
-//     });
-
-//   } catch (error) {
-
-//     console.error("Pending Leads Error:", error);
-
-//     res.status(500).json({
-//       success: false,
-//       message: error.message
-//     });
-
-//   }
-// };
-
-
-
-
-// export const getTodayReminders = async (req, res) => {
-
-//   try {
-
-//     const employeeId = new mongoose.Types.ObjectId(req.params.id);
-
-//     const today = new Date();
-//     const startOfDay = new Date(today.setHours(0,0,0,0));
-//     const endOfDay = new Date(today.setHours(23,59,59,999));
-
-//     const reminders = await FollowUp.aggregate([
-
-//       {
-//         $match: {
-//           nextFollowupDate: { $gte: startOfDay, $lte: endOfDay }
-//         }
-//       },
-
-//       {
-//         $lookup: {
-//           from: "leads",
-//           localField: "leadId",
-//           foreignField: "_id",
-//           as: "lead"
-//         }
-//       },
-//       { $unwind: "$lead" },
-
-//       {
-//         $match: {
-//           "lead.deleted": false,
-//           "lead.closed": false,
-//           "lead.negative": false,
-//           "lead.leadAssignedTo": employeeId
-//         }
-//       },
-
-//       { $replaceRoot: { newRoot: "$lead" } },
-
-//       // 🔽 POPULATE SOURCE
-//       {
-//         $lookup: {
-//           from: "sources",
-//           localField: "sources",
-//           foreignField: "_id",
-//           as: "sources"
-//         }
-//       },
-//       { $unwind: { path: "$sources", preserveNullAndEmptyArrays: true } },
-
-//       // 🔽 POPULATE PRIORITY
-//       {
-//         $lookup: {
-//           from: "priorities",
-//           localField: "priority",
-//           foreignField: "_id",
-//           as: "priority"
-//         }
-//       },
-//       { $unwind: { path: "$priority", preserveNullAndEmptyArrays: true } },
-
-//       // 🔽 POPULATE LEAD STATUS
-//       {
-//         $lookup: {
-//           from: "leadstatuses",
-//           localField: "leadStatus",
-//           foreignField: "_id",
-//           as: "leadStatus"
-//         }
-//       },
-//       { $unwind: { path: "$leadStatus", preserveNullAndEmptyArrays: true } },
-
-//       // 🔽 POPULATE SERVICES
-//       {
-//         $lookup: {
-//           from: "services",
-//           localField: "services",
-//           foreignField: "_id",
-//           as: "services"
-//         }
-//       },
-//       { $unwind: { path: "$services", preserveNullAndEmptyArrays: true } },
-
-//       // 🔽 POPULATE TAGS (ARRAY)
-//       {
-//         $lookup: {
-//           from: "tags",
-//           localField: "tags",
-//           foreignField: "_id",
-//           as: "tags"
-//         }
-//       },
-
-//       // 🔽 POPULATE EMPLOYEE (ARRAY)
-//       {
-//         $lookup: {
-//           from: "employees",
-//           localField: "leadAssignedTo",
-//           foreignField: "_id",
-//           as: "leadAssignedTo"
-//         }
-//       },
-
-//       { $sort: { createdAt: -1 } }
-
-//     ]);
-
-//     return res.status(200).json({
-//       success: true,
-//       reminders
-//     });
-
-//   } catch (error) {
-//     console.error("Today reminders error:", error);
-//     return res.status(500).json({
-//       success: false,
-//       message: error.message
-//     });
-//   }
-// };
-
-
-
-// export const getMissedLeadsByEmployee = async (req, res) => {
-//   try {
-//     const employeeId = req.params.empId;
-
-//     if (!employeeId) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Employee ID is required"
-//       });
-//     }
-
-//     const todayStart = new Date();
-//     todayStart.setHours(0, 0, 0, 0);
-
-//     // ✅ LEADS WITH ALL POPULATE (INCLUDING TAGS)
-//     const leads = await Lead.find({
-//       leadAssignedTo: { $in: [employeeId] },
-//       deleted: false
-//     })
-//     .populate("services")
-//     .populate("sources")
-//     .populate("priority")
-//     .populate("leadStatus")
-//     .populate("tags"); // 🔥 IMPORTANT
-
-//     const leadIds = leads.map(l => l._id);
-
-//     // ✅ LATEST FOLLOWUP (FULL OBJECT)
-//     const latestFollowups = await FollowUp.aggregate([
-//       {
-//         $match: {
-//           leadId: { $in: leadIds },
-//           nextFollowupDate: { $ne: null }
-//         }
-//       },
-//       { $sort: { createdAt: -1 } },
-//       {
-//         $group: {
-//           _id: "$leadId",
-//           latestFollowup: { $first: "$$ROOT" }
-//         }
-//       }
-//     ]);
-
-//     // 🔴 FILTER MISSED + MERGE
-//     const finalData = leads
-//       .map(lead => {
-//         const followup = latestFollowups.find(
-//           f => f._id.toString() === lead._id.toString()
-//         );
-
-//         if (!followup) return null;
-
-//         const nextDate = followup.latestFollowup.nextFollowupDate;
-
-//         // ❌ not missed
-//         if (!nextDate || new Date(nextDate) >= todayStart) return null;
-
-//         return {
-//           ...lead.toObject(),
-
-//           // 🔥 FULL FOLLOWUP OBJECT
-//           lastFollowup: followup.latestFollowup,
-
-//           // 🔥 EASY ACCESS FIELDS (optional but useful)
-//           lastFollowupDate: followup.latestFollowup.createdAt,
-//           nextFollowupDate: followup.latestFollowup.nextFollowupDate
-//         };
-//       })
-//       .filter(Boolean);
-
-//     res.status(200).json({
-//       success: true,
-//       total: finalData.length,
-//       data: finalData
-//     });
-
-//   } catch (error) {
-//     console.error("Missed Leads Error:", error);
-//     res.status(500).json({
-//       success: false,
-//       message: "Failed to fetch missed leads"
-//     });
-//   }
-// };
 
 
 
@@ -2076,127 +1550,6 @@ export const restoreLead = async (req, res) => {
   }
 
 }
-
-// export const assignLead = async (req, res) => {
-//     try {
-//       const { leadIds, employeeIds } = req.body;
-
-//       if (
-//         !leadIds || 
-//         !Array.isArray(leadIds) || 
-//         leadIds.length === 0 || 
-//         !employeeIds || 
-//         !Array.isArray(employeeIds) || 
-//         employeeIds.length === 0
-//       ) {
-//         return res.status(400).json({
-//           message: "Lead IDs array and Employee IDs array are required!",
-//           success: false,
-//         });
-//       }
-
-//       // Check if all leads exist
-//       const leads = await Lead.find({ _id: { $in: leadIds } });
-//       if (leads.length !== leadIds.length) {
-//         return res.status(404).json({
-//           message: "One or more leads not found",
-//           success: false,
-//         });
-//       }
-
-//       // Check if all employees exist
-//       const employees = await Employee.find({ _id: { $in: employeeIds } });
-//       if (employees.length !== employeeIds.length) {
-//         return res.status(404).json({
-//           message: "One or more employees not found",
-//           success: false,
-//         });
-//       }
-
-//       // Update each lead
-//       const updatedLeads = [];
-//       for (const leadId of leadIds) {
-//         const updatedLead = await Lead.findByIdAndUpdate(
-//           leadId,
-//           { $set: { leadAssignedTo: employeeIds } },
-//           { new: true }
-//         );
-//         updatedLeads.push(updatedLead);
-//       }
-
-//       return res.status(200).json({
-//         message: "Employees assigned to all leads successfully",
-//         updatedLeads,
-//         success: true,
-//       });
-//     } catch (error) {
-//       return res.status(500).json({
-//         message: error.message || "Internal Server Error! Error assigning employees to leads",
-//         success: false,
-//       });
-//     }
-//   };
-
-//ghj
-
-// export const unassignLeads = async (req, res) => {
-//     try {
-//       const { leadIds, employeeIdsToRemove } = req.body;
-
-//       // Validation
-//       if (!Array.isArray(leadIds) || leadIds.length === 0) {
-//         return res.status(400).json({
-//           message: "Lead IDs array is required!",
-//           success: false,
-//         });
-//       }
-
-//       if (!Array.isArray(employeeIdsToRemove) || employeeIdsToRemove.length === 0) {
-//         return res.status(400).json({
-//           message: "Employee IDs to remove are required!",
-//           success: false,
-//         });
-//       }
-
-//       // Fetch leads
-//       const leads = await Lead.find({ _id: { $in: leadIds } });
-//       if (leads.length !== leadIds.length) {
-//         return res.status(404).json({
-//           message: "One or more leads not found",
-//           success: false,
-//         });
-//       }
-
-//       const updatedLeads = [];
-
-//       for (const lead of leads) {
-//         const currentAssigned = lead.leadAssignedTo || [];
-
-//         // Filter out employees to remove
-//         const updatedAssigned = currentAssigned.filter(
-//           (empId) => !employeeIdsToRemove.includes(empId.toString())
-//         );
-
-//         // If no employees left, set to null
-//         lead.leadAssignedTo = updatedAssigned.length > 0 ? updatedAssigned : null;
-
-//         const updatedLead = await lead.save();
-//         updatedLeads.push(updatedLead);
-//       }
-
-//       return res.status(200).json({
-//         message: "Selected employees have been unassigned from the leads successfully",
-//         updatedLeads,
-//         success: true,
-//       });
-//     } catch (error) {
-//       return res.status(500).json({
-//         message: error.message || "Internal Server Error! Error unassigning employees",
-//         success: false,
-//       });
-//     }
-//   };
-
 
 export const assignLead = async (req, res) => {
   try {
@@ -2291,7 +1644,7 @@ export const assignLead = async (req, res) => {
     const sendNotifications = async () => {
       try {
         const notifyPromises = [];
-        
+
         // Notify added employees
         for (const [empId, count] of Object.entries(notificationsToSend.added)) {
           notifyPromises.push((async () => {
@@ -2345,13 +1698,13 @@ export const assignLead = async (req, res) => {
             }
           })());
         }
-        
+
         await Promise.all(notifyPromises);
       } catch (notifyError) {
         console.log("Assign notify error:", notifyError.message);
       }
     };
-    
+
     // Fire and forget
     sendNotifications();
 
@@ -2381,42 +1734,53 @@ export const unassignLeads = async (req, res) => {
       });
     }
 
-    if (!Array.isArray(employeeIdsToRemove) || employeeIdsToRemove.length === 0) {
-      return res.status(400).json({
-        message: "Employee IDs to remove are required!",
-        success: false,
-      });
-    }
+    const uniqueLeadIds = [...new Set(leadIds.map(id => id?.toString()))].filter(Boolean);
+    const leads = await Lead.find({ _id: { $in: uniqueLeadIds } });
 
-    const leads = await Lead.find({ _id: { $in: leadIds } });
-    if (leads.length !== leadIds.length) {
+    if (!leads || leads.length === 0) {
       return res.status(404).json({
-        message: "One or more leads not found",
+        message: "No leads found",
         success: false,
       });
     }
 
-    const employees = await Employee.find({
-      _id: { $in: employeeIdsToRemove }
-    });
+    const isUnassignAll = !Array.isArray(employeeIdsToRemove) || employeeIdsToRemove.length === 0;
+    const removeSet = !isUnassignAll ? new Set(employeeIdsToRemove.map(id => id.toString())) : null;
 
+    const notificationsToSend = {}; // empId -> count of unassigned leads
     const bulkOperations = [];
 
     for (const lead of leads) {
-      const currentAssigned = lead.leadAssignedTo || [];
+      const currentAssigned = (lead.leadAssignedTo || []).map(id => id.toString());
+      let updatedAssigned = [];
+      let removedAssignees = [];
 
-      const updatedAssigned = currentAssigned.filter(
-        (empId) => !employeeIdsToRemove.includes(empId.toString())
-      );
+      if (isUnassignAll) {
+        updatedAssigned = [];
+        removedAssignees = currentAssigned;
+      } else {
+        updatedAssigned = currentAssigned.filter(empId => !removeSet.has(empId));
+        removedAssignees = currentAssigned.filter(empId => removeSet.has(empId));
+      }
+
+      removedAssignees.forEach(empId => {
+        notificationsToSend[empId] = (notificationsToSend[empId] || 0) + 1;
+      });
 
       const updateFields = {
-        leadAssignedTo: updatedAssigned.length > 0 ? updatedAssigned : []
+        leadAssignedTo: updatedAssigned
       };
 
+      if (updatedAssigned.length === 0) {
+        updateFields.leadAssignedAt = null;
+      }
+
       const unsetFields = {};
-      if (lead.assignedAtMap) {
+      if (isUnassignAll) {
+        unsetFields.assignedAtMap = "";
+      } else if (lead.assignedAtMap) {
         employeeIdsToRemove.forEach(empIdStr => {
-          unsetFields[`assignedAtMap.${empIdStr}`] = "";
+          unsetFields[`assignedAtMap.${empIdStr.toString()}`] = "";
         });
       }
 
@@ -2442,21 +1806,27 @@ export const unassignLeads = async (req, res) => {
     =============================== */
     const sendNotifications = async () => {
       try {
+        const empIdsToNotify = Object.keys(notificationsToSend);
+        if (empIdsToNotify.length === 0) return;
+
+        const employees = await Employee.find({ _id: { $in: empIdsToNotify } });
         const notifyPromises = [];
+
         for (const emp of employees) {
+          const count = notificationsToSend[emp._id.toString()] || 1;
           notifyPromises.push((async () => {
             if (emp?.fcmToken) {
               await admin.messaging().send({
                 token: emp.fcmToken,
                 notification: {
-                  title: "🔔Lead Unassigned",
-                  body: `${leadIds.length} lead(s) have been unassigned from your crm`,
+                  title: "🔔 Lead Unassigned",
+                  body: `${count} lead(s) have been unassigned from your crm`,
                 },
                 data: { url: "/main", type: "LEAD_UNASSIGNED" },
                 webpush: {
                   notification: {
-                    title: "🔔Lead Unassigned",
-                    body: `${leadIds.length} lead(s) have been unassigned from your crm`,
+                    title: "🔔 Lead Unassigned",
+                    body: `${count} lead(s) have been unassigned from your crm`,
                     icon: "/favicon.ico",
                     sound: "default",
                     requireInteraction: true,
@@ -2469,20 +1839,23 @@ export const unassignLeads = async (req, res) => {
         }
         await Promise.all(notifyPromises);
       } catch (notifyError) {
-        console.log("Unassign notify error:", notifyError.message);
+        console.log("Unassign notify error:", notifyError?.message || notifyError);
       }
     };
-    
-    // Fire and forget
-    sendNotifications();
+
+    // Fire and forget safely
+    sendNotifications().catch(err => console.log("Background notify error:", err));
 
     return res.status(200).json({
-      message: "Selected employees have been unassigned successfully",
-      updatedLeads,
+      message: isUnassignAll
+        ? "Selected leads have been unassigned successfully"
+        : "Selected employees have been unassigned successfully",
+      updatedLeads: leads,
       success: true,
     });
 
   } catch (error) {
+    console.error("Error in unassignLeads:", error);
     return res.status(500).json({
       message: error.message || "Internal Server Error!",
       success: false,
@@ -2538,17 +1911,28 @@ export const closedLead = async (req, res) => {
         success: false
       })
     }
-    await Lead.findByIdAndUpdate(
+    const updatedLead = await Lead.findByIdAndUpdate(
       { _id: leadId },
       {
         $set: {
           closed: true,
           closedBy: userId || null,
           closedByType: userType || null,
-          closedRemark: remark || ""
+          closedRemark: remark || "",
+          closedAt: new Date()
+        }
+      },
+      { new: true }
+    );
+
+    if (updatedLead && updatedLead.leadAssignedTo) {
+      const assignedTo = Array.isArray(updatedLead.leadAssignedTo) ? updatedLead.leadAssignedTo : [updatedLead.leadAssignedTo];
+      for (const empId of assignedTo) {
+        if (empId) {
+          await incrementDailyReport(empId, { closedLeads: 1 });
         }
       }
-    );
+    }
     return res.status(200).json({
       message: "Lead Closed Successfully!",
       success: true
@@ -2571,7 +1955,7 @@ export const UnclosedLead = async (req, res) => {
         success: false
       })
     }
-    await Lead.findByIdAndUpdate({ _id: leadId }, { $set: { closed: false } });
+    await Lead.findByIdAndUpdate({ _id: leadId }, { $set: { closed: false }, $unset: { closedAt: "" } });
     return res.status(200).json({
       message: "Lead Unclosed Successfully!",
       success: true
@@ -2595,17 +1979,28 @@ export const negativedLead = async (req, res) => {
         success: false
       })
     }
-    await Lead.findByIdAndUpdate(
+    const updatedLead = await Lead.findByIdAndUpdate(
       { _id: leadId },
       {
         $set: {
           negative: true,
           negativeBy: userId || null,
           negativeByType: userType || null,
-          negativeRemark: remark || ""
+          negativeRemark: remark || "",
+          negativeAt: new Date()
+        }
+      },
+      { new: true }
+    );
+
+    if (updatedLead && updatedLead.leadAssignedTo) {
+      const assignedTo = Array.isArray(updatedLead.leadAssignedTo) ? updatedLead.leadAssignedTo : [updatedLead.leadAssignedTo];
+      for (const empId of assignedTo) {
+        if (empId) {
+          await incrementDailyReport(empId, { negativeLeads: 1 });
         }
       }
-    );
+    }
     return res.status(200).json({
       message: "Mark as Negative Successfully!",
       success: true
@@ -2629,7 +2024,7 @@ export const UnnegativedLead = async (req, res) => {
         success: false
       })
     }
-    await Lead.findByIdAndUpdate({ _id: leadId }, { $set: { negative: false } });
+    await Lead.findByIdAndUpdate({ _id: leadId }, { $set: { negative: false, negativeAt: null } });
     return res.status(200).json({
       message: "Mark as Negative Successfully!",
       success: true
@@ -2643,85 +2038,6 @@ export const UnnegativedLead = async (req, res) => {
 
 }
 
-
-
-// export const addPublicEnquiry = async (req, res) => {
-
-//    try {
-
-//       const {
-//          name,
-//          phone,
-//          email,
-//          services,
-//          slug
-//       } = req.body;
-
-//       // Find Admin
-//       const admin = await Admin.findOne({
-//          adminSlug: slug
-//       });
-
-//       if (!admin) {
-
-//          return res.status(404).json({
-//             success: false,
-//             message: "Invalid Form"
-//          });
-
-//       }
-
-//       // Duplicate Check
-//       const existingLead = await Lead.findOne({
-//          phone,
-//          adminOwner: admin._id
-//       });
-
-//       if (existingLead) {
-
-//          return res.status(400).json({
-//             success: false,
-//             message: "Lead already exists"
-//          });
-
-//       }
-
-//       // Create Lead
-//       const lead = await Lead.create({
-
-//          name,
-//          phone,
-//          email,
-//          services,
-
-//          publicLead: true,
-
-//          adminOwner: admin._id,
-
-//          addedBy: admin._id,
-
-//          addedByType: "Admin"
-
-//       });
-
-//       return res.status(201).json({
-//          success: true,
-//          message: "Enquiry Submitted",
-//          lead
-//       });
-
-//    } catch (error) {
-
-//       console.log(error);
-
-//       return res.status(500).json({
-//          success: false,
-//          message: "Server Error"
-//       });
-
-//    }
-
-// };
 
 
 export const addPublicEnquiry = async (req, res) => {
@@ -3132,6 +2448,8 @@ export const getAdminPublicEnquiries = async (req, res) => {
       .populate('sources')
       .populate('services')
       .populate('tags')
+      .populate('acceptedBy')
+      .populate('targetedEmployee')
       .sort({ createdAt: -1 });
 
     return res.status(200).json({
@@ -3145,5 +2463,665 @@ export const getAdminPublicEnquiries = async (req, res) => {
       success: false,
       message: "Server Error"
     });
+  }
+};
+
+export const getEmployeeReport = async (req, res) => {
+  try {
+    const { empId, startDate, endDate, adminId } = req.query;
+
+    const matchStage = {
+      deleted: false,
+      $and: [
+        { leadAssignedTo: { $ne: null } },
+        { leadAssignedTo: { $not: { $size: 0 } } }
+      ]
+    };
+
+    if (empId && empId !== 'null' && empId !== 'undefined' && empId !== 'All') {
+      matchStage.leadAssignedTo = new mongoose.Types.ObjectId(empId);
+    }
+
+    // Date filter removed from matchStage to show overall pipeline snapshot
+    // Action metrics (followups) will still be filtered by date.
+    
+    let trendDateMatch = {};
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      trendDateMatch = { $gte: start, $lte: end };
+    } else {
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 35);
+      thirtyDaysAgo.setHours(0,0,0,0);
+      trendDateMatch = { $gte: thirtyDaysAgo };
+    }
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    const pipeline = [
+      { $match: matchStage },
+      {
+        $lookup: {
+          from: 'followups',
+          localField: '_id',
+          foreignField: 'leadId',
+          pipeline: [
+            { $sort: { createdAt: -1 } },
+            { $limit: 1 }
+          ],
+          as: 'latestFollowup'
+        }
+      },
+      {
+        $addFields: {
+          latestFollowup: { $arrayElemAt: ['$latestFollowup', 0] }
+        }
+      },
+      { $unwind: '$leadAssignedTo' },
+      // FIX: If a specific employee is selected, filter out the unwound documents of other employees
+      ...(empId && empId !== 'null' && empId !== 'undefined' && empId !== 'All'
+        ? [{ $match: { leadAssignedTo: new mongoose.Types.ObjectId(empId) } }]
+        : []),
+      {
+        $addFields: {
+          reportCategory: {
+            $switch: {
+              branches: [
+                { case: { $eq: ['$closed', true] }, then: 'Closed' },
+                { case: { $eq: ['$negative', true] }, then: 'Negative' },
+                {
+                  case: {
+                    $or: [
+                      { $eq: [{ $type: '$latestFollowup' }, 'missing'] },
+                      { $eq: ['$latestFollowup', null] },
+                      { $ne: ['$latestFollowup.followedBy', '$leadAssignedTo'] }
+                    ]
+                  },
+                  then: 'Pending'
+                },
+                {
+                  case: {
+                    $and: [
+                      { $ne: ['$latestFollowup.nextFollowupDate', null] },
+                      { $lt: ['$latestFollowup.nextFollowupDate', todayStart] },
+                      { $eq: ['$latestFollowup.followedBy', '$leadAssignedTo'] }
+                    ]
+                  },
+                  then: 'Missed'
+                },
+                {
+                  case: {
+                    $and: [
+                      { $ne: ['$latestFollowup.nextFollowupDate', null] },
+                      { $gte: ['$latestFollowup.nextFollowupDate', todayStart] },
+                      { $lte: ['$latestFollowup.nextFollowupDate', todayEnd] },
+                      { $eq: ['$latestFollowup.followedBy', '$leadAssignedTo'] }
+                    ]
+                  },
+                  then: 'Reminder'
+                }
+              ],
+              default: 'Followups'
+            }
+          }
+        }
+      },
+      {
+        $facet: {
+          employeeStats: [
+            {
+              $group: {
+                _id: { empId: '$leadAssignedTo', category: '$reportCategory' },
+                count: { $sum: 1 }
+              }
+            },
+            {
+              $group: {
+                _id: '$_id.empId',
+                categories: { $push: { k: '$_id.category', v: '$count' } },
+                totalAssigned: { $sum: '$count' }
+              }
+            },
+            { $addFields: { stats: { $arrayToObject: '$categories' } } },
+            {
+              $lookup: {
+                from: 'employees',
+                localField: '_id',
+                foreignField: '_id',
+                as: 'employeeDetails'
+              }
+            },
+            ...(adminId
+              ? [
+                  {
+                    $match: {
+                      'employeeDetails.addedBy': new mongoose.Types.ObjectId(adminId)
+                    }
+                  }
+                ]
+              : []),
+            {
+              $project: {
+                _id: 1,
+                empName: { $arrayElemAt: ['$employeeDetails.empName', 0] },
+                avatar: { $arrayElemAt: ['$employeeDetails.empProfile', 0] },
+                target: { $ifNull: [{ $arrayElemAt: ['$employeeDetails.target', 0] }, 80] },
+                totalAssigned: 1,
+                Pending: { $ifNull: ['$stats.Pending', 0] },
+                Missed: { $ifNull: ['$stats.Missed', 0] },
+                Followups: { $ifNull: ['$stats.Followups', 0] },
+                Reminder: { $ifNull: ['$stats.Reminder', 0] },
+                Closed: { $ifNull: ['$stats.Closed', 0] },
+                Negative: { $ifNull: ['$stats.Negative', 0] }
+              }
+            },
+            { $sort: { totalAssigned: -1 } }
+          ],
+          globalStats: [
+            {
+              $group: {
+                _id: '$reportCategory',
+                count: { $sum: 1 }
+              }
+            }
+          ],
+          trendStats: [
+            {
+              $match: {
+                $or: [
+                  { leadAssignedAt: trendDateMatch },
+                  { leadAssignedAt: { $exists: false }, createdAt: trendDateMatch },
+                  { leadAssignedAt: null, createdAt: trendDateMatch }
+                ]
+              }
+            },
+            {
+              $group: {
+                _id: {
+                  $dateToString: { format: '%Y-%m-%d', date: { $ifNull: ['$leadAssignedAt', '$createdAt'] } }
+                },
+                count: { $sum: 1 },
+                Pending: { $sum: { $cond: [{ $eq: ['$reportCategory', 'Pending'] }, 1, 0] } },
+                Missed: { $sum: { $cond: [{ $eq: ['$reportCategory', 'Missed'] }, 1, 0] } },
+                Followups: { $sum: { $cond: [{ $eq: ['$reportCategory', 'Followups'] }, 1, 0] } },
+                Reminder: { $sum: { $cond: [{ $eq: ['$reportCategory', 'Reminder'] }, 1, 0] } },
+                Closed: { $sum: { $cond: [{ $eq: ['$reportCategory', 'Closed'] }, 1, 0] } },
+                Negative: { $sum: { $cond: [{ $eq: ['$reportCategory', 'Negative'] }, 1, 0] } }
+              }
+            },
+            { $sort: { _id: 1 } },
+            { $limit: 30 }
+          ]
+        }
+      }
+    ];
+
+    const results = await Lead.aggregate(pipeline);
+    const data = results[0] || { employeeStats: [], globalStats: [], trendStats: [] };
+
+    // Fetch today's followup counts for each employee
+    const followupMatchStage = {};
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      followupMatchStage.createdAt = { $gte: start, $lte: end };
+    } else {
+      followupMatchStage.createdAt = { $gte: todayStart, $lte: todayEnd };
+    }
+
+    if (empId && empId !== 'null' && empId !== 'undefined' && empId !== 'All') {
+      followupMatchStage.followedBy = new mongoose.Types.ObjectId(empId);
+    }
+
+    const todaysFollowupsResult = await FollowUp.aggregate([
+      { $match: followupMatchStage },
+      {
+        $group: {
+          _id: '$followedBy',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    const todaysFollowupsMap = {};
+    let totalTodaysFollowups = 0;
+    todaysFollowupsResult.forEach(item => {
+      todaysFollowupsMap[item._id.toString()] = item.count;
+      totalTodaysFollowups += item.count;
+    });
+
+    // Create a map to quickly find employees in data.employeeStats
+    const empStatMap = {};
+    data.employeeStats.forEach(emp => {
+      empStatMap[emp._id.toString()] = emp;
+    });
+
+    // Check todaysFollowupsResult and add missing employees
+    for (const item of todaysFollowupsResult) {
+      const empIdStr = item._id.toString();
+      if (!empStatMap[empIdStr]) {
+         const empDetails = await Employee.findById(item._id).select('empName empProfile target');
+         if (empDetails) {
+            data.employeeStats.push({
+               _id: item._id,
+               empName: empDetails.empName,
+               avatar: empDetails.empProfile,
+               target: empDetails.target || 80,
+               totalAssigned: 0,
+               Pending: 0, Missed: 0, Followups: 0, Reminder: 0, Closed: 0, Negative: 0
+            });
+         }
+      }
+    }
+
+    data.employeeStats.forEach(emp => {
+      emp.TodaysFollowups = todaysFollowupsMap[emp._id.toString()] || 0;
+    });
+
+    const formattedGlobal = { Pending: 0, Missed: 0, Followups: 0, Reminder: 0, Closed: 0, Negative: 0, TotalAssigned: 0, TodaysFollowups: totalTodaysFollowups };
+    data.globalStats.forEach(item => {
+      formattedGlobal[item._id] = item.count;
+      formattedGlobal.TotalAssigned += item.count;
+    });
+
+    // Fetch trend of Followup actions for the selected date range or last 30 days
+    let trendStart = new Date();
+    trendStart.setDate(trendStart.getDate() - 30);
+    let trendEnd = new Date();
+    
+    if (startDate && endDate) {
+      trendStart = new Date(startDate);
+      trendEnd = new Date(endDate);
+      trendEnd.setHours(23, 59, 59, 999);
+    }
+    
+    const trendFollowupMatchStage = {
+      createdAt: { $gte: trendStart, $lte: trendEnd }
+    };
+    if (empId && empId !== 'null' && empId !== 'undefined' && empId !== 'All') {
+      trendFollowupMatchStage.followedBy = new mongoose.Types.ObjectId(empId);
+    }
+    const trendFollowupsResult = await FollowUp.aggregate([
+      { $match: trendFollowupMatchStage },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    const trendFollowupsMap = {};
+    trendFollowupsResult.forEach(item => {
+      trendFollowupsMap[item._id] = item.count;
+    });
+
+    // Merge missing dates from followups into trendStats
+    const existingDates = new Set(data.trendStats.map(t => t._id));
+    Object.keys(trendFollowupsMap).forEach(dateStr => {
+      if (!existingDates.has(dateStr)) {
+        data.trendStats.push({
+          _id: dateStr, count: 0, Pending: 0, Missed: 0, Followups: 0, Reminder: 0, Closed: 0, Negative: 0
+        });
+      }
+    });
+
+    data.trendStats.sort((a, b) => a._id.localeCompare(b._id));
+    data.trendStats.forEach(item => {
+      item.ActionFollowups = trendFollowupsMap[item._id] || 0;
+    });
+
+    return res.status(200).json({
+      success: true,
+      employeeStats: data.employeeStats,
+      globalStats: formattedGlobal,
+      trendStats: data.trendStats
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to generate employee report',
+      error: error.message
+    });
+  }
+};
+
+export const getEmployeeReportDetails = async (req, res) => {
+  try {
+    const { empId, targetDate, category } = req.query;
+
+    if (!targetDate || !category) {
+      return res.status(400).json({ success: false, message: 'Missing targetDate or category' });
+    }
+
+    const start = new Date(targetDate);
+    start.setHours(0, 0, 0, 0);
+
+    const end = new Date(targetDate);
+    end.setHours(23, 59, 59, 999);
+
+    if (category === 'Daily Followups') {
+      const matchStage = { createdAt: { $gte: start, $lte: end } };
+      if (empId && empId !== 'null' && empId !== 'undefined' && empId !== 'All') {
+        matchStage.followedBy = new mongoose.Types.ObjectId(empId);
+      }
+      
+      const followups = await FollowUp.find(matchStage)
+        .populate({
+          path: 'leadId',
+          match: { deleted: false, publicLead: { $ne: true } }
+        })
+        .populate('followupStatus')
+        .populate('service')
+        .populate('followedBy', 'empName')
+        .sort({ createdAt: -1 });
+
+      const filteredFollowups = followups.filter(f => f.leadId != null);
+      
+      const leadsList = filteredFollowups.map(f => ({
+        _id: f.leadId._id,
+        name: f.leadId.name,
+        phone: f.leadId.phone,
+        status: f.followupStatus ? f.followupStatus.leadStatusText : 'Pending',
+        service: f.service ? f.service.servicesText : 'N/A',
+        followedBy: f.followedBy ? f.followedBy.empName : 'N/A',
+        message: f.followupMessage || 'No Message',
+        nextFollowupDate: f.nextFollowupDate,
+        lastFollowupDate: f.createdAt
+      }));
+
+      return res.status(200).json({ success: true, data: leadsList });
+    }
+
+    // For Missed or Closed Leads
+    const matchStage = {
+      deleted: false,
+      publicLead: { $ne: true },
+      $and: [
+        { leadAssignedTo: { $ne: null } },
+        { leadAssignedTo: { $not: { $size: 0 } } }
+      ]
+    };
+
+    if (empId && empId !== 'null' && empId !== 'undefined' && empId !== 'All') {
+      matchStage.leadAssignedTo = new mongoose.Types.ObjectId(empId);
+    }
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    const pipeline = [
+      { $match: matchStage },
+      {
+        $lookup: {
+          from: 'followups',
+          localField: '_id',
+          foreignField: 'leadId',
+          pipeline: [
+            { $sort: { createdAt: -1 } },
+            { $limit: 1 },
+            { $lookup: { from: 'leadstatuses', localField: 'followupStatus', foreignField: '_id', as: 'statusData' } },
+            { $lookup: { from: 'services', localField: 'service', foreignField: '_id', as: 'serviceData' } },
+            { $lookup: { from: 'employees', localField: 'followedBy', foreignField: '_id', as: 'employeeData' } },
+            { $unwind: { path: '$statusData', preserveNullAndEmptyArrays: true } },
+            { $unwind: { path: '$serviceData', preserveNullAndEmptyArrays: true } },
+            { $unwind: { path: '$employeeData', preserveNullAndEmptyArrays: true } }
+          ],
+          as: 'latestFollowup'
+        }
+      },
+      {
+        $addFields: {
+          latestFollowup: { $arrayElemAt: ['$latestFollowup', 0] },
+          trendDate: { $dateToString: { format: '%Y-%m-%d', date: { $ifNull: ['$leadAssignedAt', '$createdAt'] } } }
+        }
+      },
+      { $match: { trendDate: targetDate } },
+      { $unwind: '$leadAssignedTo' },
+      ...(empId && empId !== 'null' && empId !== 'undefined' && empId !== 'All'
+        ? [{ $match: { leadAssignedTo: new mongoose.Types.ObjectId(empId) } }]
+        : []),
+      {
+        $addFields: {
+          reportCategory: {
+            $switch: {
+              branches: [
+                { case: { $eq: ['$closed', true] }, then: 'Closed' },
+                { case: { $eq: ['$negative', true] }, then: 'Negative' },
+                {
+                  case: {
+                    $or: [
+                      { $eq: [{ $type: '$latestFollowup' }, 'missing'] },
+                      { $eq: ['$latestFollowup', null] },
+                      { $ne: ['$latestFollowup.followedBy', '$leadAssignedTo'] }
+                    ]
+                  },
+                  then: 'Pending'
+                },
+                {
+                  case: {
+                    $and: [
+                      { $ne: ['$latestFollowup.nextFollowupDate', null] },
+                      { $lt: ['$latestFollowup.nextFollowupDate', todayStart] },
+                      { $eq: ['$latestFollowup.followedBy', '$leadAssignedTo'] }
+                    ]
+                  },
+                  then: 'Missed'
+                },
+                {
+                  case: {
+                    $and: [
+                      { $ne: ['$latestFollowup.nextFollowupDate', null] },
+                      { $gte: ['$latestFollowup.nextFollowupDate', todayStart] },
+                      { $lte: ['$latestFollowup.nextFollowupDate', todayEnd] },
+                      { $eq: ['$latestFollowup.followedBy', '$leadAssignedTo'] }
+                    ]
+                  },
+                  then: 'Reminder'
+                }
+              ],
+              default: 'Followups'
+            }
+          }
+        }
+      },
+      { $match: { reportCategory: category.replace(' Leads', '') } }
+    ];
+
+    const results = await Lead.aggregate(pipeline);
+    
+    const leadsList = results.map(r => ({
+      _id: r._id,
+      name: r.name,
+      phone: r.phone,
+      status: (r.latestFollowup && r.latestFollowup.statusData) ? r.latestFollowup.statusData.leadStatusText : 'Pending',
+      service: (r.latestFollowup && r.latestFollowup.serviceData) ? r.latestFollowup.serviceData.servicesText : 'N/A',
+      followedBy: (r.latestFollowup && r.latestFollowup.employeeData) ? r.latestFollowup.employeeData.empName : 'N/A',
+      message: r.latestFollowup ? r.latestFollowup.followupMessage : 'No followups',
+      nextFollowupDate: r.latestFollowup ? r.latestFollowup.nextFollowupDate : null
+    }));
+
+    return res.status(200).json({ success: true, data: leadsList });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch details',
+      error: error.message
+    });
+  }
+};
+
+export const getEmployeeActionDetails = async (req, res) => {
+  try {
+    const { empId, startDate, endDate, category } = req.query;
+
+    if (!category) {
+      return res.status(400).json({ success: false, message: 'Missing category' });
+    }
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    if (category === 'TodaysFollowups') {
+      const matchStage = { createdAt: { $gte: todayStart, $lte: todayEnd } };
+      if (empId && empId !== 'null' && empId !== 'undefined' && empId !== 'All') {
+        matchStage.followedBy = new mongoose.Types.ObjectId(empId);
+      }
+      
+      const followups = await FollowUp.find(matchStage)
+        .populate({
+          path: 'leadId',
+          match: { deleted: false, publicLead: { $ne: true } }
+        })
+        .populate('followupStatus')
+        .populate('service')
+        .populate('followedBy', 'empName')
+        .sort({ createdAt: -1 });
+
+      const filteredFollowups = followups.filter(f => f.leadId != null);
+      
+      const leadsList = filteredFollowups.map(f => ({
+        _id: f.leadId._id,
+        name: f.leadId.name,
+        phone: f.leadId.phone,
+        status: f.followupStatus ? f.followupStatus.leadStatusText : 'Pending',
+        service: f.service ? f.service.servicesText : 'N/A',
+        followedBy: f.followedBy ? f.followedBy.empName : 'N/A',
+        message: f.followupMessage || 'No Message',
+        nextFollowupDate: f.nextFollowupDate
+      }));
+
+      return res.status(200).json({ success: true, data: leadsList });
+    }
+
+    // For Missed, Closed, Negative, Followups, Reminder, Pending
+    const matchStage = {
+      deleted: false,
+      publicLead: { $ne: true },
+      $and: [
+        { leadAssignedTo: { $ne: null } },
+        { leadAssignedTo: { $not: { $size: 0 } } }
+      ]
+    };
+
+    if (empId && empId !== 'null' && empId !== 'undefined' && empId !== 'All') {
+      matchStage.leadAssignedTo = new mongoose.Types.ObjectId(empId);
+    }
+
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      matchStage.createdAt = { $gte: start, $lte: end };
+    }
+
+    const pipeline = [
+      { $match: matchStage },
+      {
+        $lookup: {
+          from: 'followups',
+          localField: '_id',
+          foreignField: 'leadId',
+          pipeline: [
+            { $sort: { createdAt: -1 } },
+            { $limit: 1 },
+            { $lookup: { from: 'leadstatuses', localField: 'followupStatus', foreignField: '_id', as: 'statusData' } },
+            { $lookup: { from: 'services', localField: 'service', foreignField: '_id', as: 'serviceData' } },
+            { $lookup: { from: 'employees', localField: 'followedBy', foreignField: '_id', as: 'employeeData' } },
+            { $unwind: { path: '$statusData', preserveNullAndEmptyArrays: true } },
+            { $unwind: { path: '$serviceData', preserveNullAndEmptyArrays: true } },
+            { $unwind: { path: '$employeeData', preserveNullAndEmptyArrays: true } }
+          ],
+          as: 'latestFollowup'
+        }
+      },
+      {
+        $addFields: {
+          latestFollowup: { $arrayElemAt: ['$latestFollowup', 0] }
+        }
+      },
+      { $unwind: '$leadAssignedTo' },
+      ...(empId && empId !== 'null' && empId !== 'undefined' && empId !== 'All'
+        ? [{ $match: { leadAssignedTo: new mongoose.Types.ObjectId(empId) } }]
+        : []),
+      {
+        $addFields: {
+          reportCategory: {
+            $switch: {
+              branches: [
+                { case: { $eq: ['$closed', true] }, then: 'Closed' },
+                { case: { $eq: ['$negative', true] }, then: 'Negative' },
+                {
+                  case: {
+                    $or: [
+                      { $eq: [{ $type: '$latestFollowup' }, 'missing'] },
+                      { $eq: ['$latestFollowup', null] },
+                      { $ne: ['$latestFollowup.followedBy', '$leadAssignedTo'] }
+                    ]
+                  },
+                  then: 'Pending'
+                },
+                {
+                  case: {
+                    $and: [
+                      { $ne: ['$latestFollowup.nextFollowupDate', null] },
+                      { $lt: ['$latestFollowup.nextFollowupDate', todayStart] },
+                      { $eq: ['$latestFollowup.followedBy', '$leadAssignedTo'] }
+                    ]
+                  },
+                  then: 'Missed'
+                },
+                {
+                  case: {
+                    $and: [
+                      { $ne: ['$latestFollowup.nextFollowupDate', null] },
+                      { $gte: ['$latestFollowup.nextFollowupDate', todayStart] },
+                      { $lte: ['$latestFollowup.nextFollowupDate', todayEnd] },
+                      { $eq: ['$latestFollowup.followedBy', '$leadAssignedTo'] }
+                    ]
+                  },
+                  then: 'Reminder'
+                }
+              ],
+              default: 'Followups'
+            }
+          }
+        }
+      },
+      { $match: { reportCategory: category } }
+    ];
+
+    const results = await Lead.aggregate(pipeline);
+    
+    const leadsList = results.map(r => ({
+      _id: r._id,
+      name: r.name,
+      phone: r.phone,
+      status: (r.latestFollowup && r.latestFollowup.statusData) ? r.latestFollowup.statusData.leadStatusText : 'Pending',
+      service: (r.latestFollowup && r.latestFollowup.serviceData) ? r.latestFollowup.serviceData.servicesText : 'N/A',
+      followedBy: (r.latestFollowup && r.latestFollowup.employeeData) ? r.latestFollowup.employeeData.empName : 'N/A',
+      message: r.latestFollowup ? r.latestFollowup.followupMessage : 'No followups',
+      nextFollowupDate: r.latestFollowup ? r.latestFollowup.nextFollowupDate : null
+    }));
+
+    return res.status(200).json({ success: true, data: leadsList });
+
+  } catch (error) {
+    console.error("Error in getEmployeeActionDetails:", error);
+    return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };

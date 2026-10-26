@@ -25,15 +25,15 @@ cron.schedule(
 async function sendPendingLeadNotifications(title) {
   const employees = await Employee.find({
     blocked: false,
-    fcmToken: { $ne: null }
+    fcmTokens: { $exists: true, $not: { $size: 0 } }
   });
 
   for (const emp of employees) {
     const pendingCount = await getPendingLeadCount(emp._id);
 
     if (pendingCount > 0) {
-      await admin.messaging().send({
-        token: emp.fcmToken,
+      await admin.messaging().sendEachForMulticast({
+        tokens: emp.fcmTokens,
         notification: {
           title,
           body: `You have ${pendingCount} pending leads to follow up`

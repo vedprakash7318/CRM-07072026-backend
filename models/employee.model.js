@@ -59,9 +59,9 @@ const employeeSchema = mongoose.Schema({
         type:String,
         trim:true
     },
-    fcmToken: {
-        type: String,
-        default: null
+    fcmTokens: {
+        type: [String],
+        default: []
     },
     blocked:{
         type:Boolean,

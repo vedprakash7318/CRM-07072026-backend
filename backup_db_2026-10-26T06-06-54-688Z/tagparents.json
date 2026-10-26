@@ -1,0 +1,6 @@
+[
+{"_id":"6a37b4c7737741e72775f048","tagParentName":"College","addedBy":"67e7d02fb0e3a9a66d377e7c","addedByType":"Admin","createdAt":"2026-06-21T09:54:15.791Z","updatedAt":"2026-06-21T09:54:15.791Z","__v":0},
+{"_id":"6a37b4cb737741e72775f04c","tagParentName":"Year","addedBy":"67e7d02fb0e3a9a66d377e7c","addedByType":"Admin","createdAt":"2026-06-21T09:54:19.292Z","updatedAt":"2026-06-21T09:54:19.292Z","__v":0},
+{"_id":"6a37b4d3737741e72775f050","tagParentName":"Branch","addedBy":"67e7d02fb0e3a9a66d377e7c","addedByType":"Admin","createdAt":"2026-06-21T09:54:27.045Z","updatedAt":"2026-06-21T09:54:27.045Z","__v":0},
+{"_id":"6a49ccc91a298f5356d45931","tagParentName":"Meta-Ad","addedBy":"67e7d02fb0e3a9a66d377e7c","addedByType":"Admin","createdAt":"2026-07-05T03:17:29.253Z","updatedAt":"2026-07-05T03:17:29.253Z","__v":0}
+]

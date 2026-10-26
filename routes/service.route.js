@@ -1,14 +1,15 @@
 import { addservices, getAllServices,getPublicServices, getservicesById, updateservices, deleteServices } from "../controllers/service.controller.js";
 import express from "express";
+import { cacheMiddleware, clearCacheOnMutation } from "../middleware/cacheMiddleware.js";
 
 const serviceRouter = express.Router();
 
-serviceRouter.post("/add/:id", addservices);
-serviceRouter.get("/get/:id", getAllServices);
-serviceRouter.get("/get/:id", getservicesById);
-serviceRouter.put("/update/:id", updateservices);
+serviceRouter.post("/add/:id", clearCacheOnMutation("/get"), addservices);
+serviceRouter.get("/get/:id", cacheMiddleware(300), getAllServices);
+serviceRouter.get("/get/:id", cacheMiddleware(300), getservicesById);
+serviceRouter.put("/update/:id", clearCacheOnMutation("/get"), updateservices);
 serviceRouter.delete("/delete/:id",deleteServices);
-serviceRouter.get("/public/services", getPublicServices);
+serviceRouter.get("/public/services", cacheMiddleware(300), getPublicServices);
 
 
 export default serviceRouter;  
