@@ -253,7 +253,7 @@ export const getAllLeads = async (req, res) => {
     let addedBy = req.params.id;
     if (mongoose.Types.ObjectId.isValid(addedBy)) addedBy = new mongoose.Types.ObjectId(addedBy);
 
-    const { leadAssignedTo, tags } = req.query;
+    const { leadAssignedTo, tags, status, leadStatus } = req.query;
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
@@ -278,6 +278,23 @@ export const getAllLeads = async (req, res) => {
     if (tags && tags !== 'null') {
       const tagIds = Array.isArray(tags) ? tags : tags.split(',');
       baseQuery.tags = { $all: tagIds };
+    }
+
+    const statusParam = status || leadStatus;
+    if (statusParam && statusParam !== 'null') {
+      const statusIds = Array.isArray(statusParam) ? statusParam : statusParam.split(',');
+      const validStatusIds = statusIds
+        .map((id) => {
+          try {
+            return new mongoose.Types.ObjectId(id.trim());
+          } catch (e) {
+            return null;
+          }
+        })
+        .filter(Boolean);
+      if (validStatusIds.length > 0) {
+        baseQuery.leadStatus = { $in: validStatusIds };
+      }
     }
 
     if (req.query.searchQuery) {
@@ -437,6 +454,23 @@ export const getAssignedLeads = async (req, res) => {
       query.tags = { $all: tagIds };
     }
 
+    const statusParam = req.query.status || req.query.leadStatus;
+    if (statusParam && statusParam !== 'null') {
+      const statusIds = Array.isArray(statusParam) ? statusParam : statusParam.split(',');
+      const validStatusIds = statusIds
+        .map((id) => {
+          try {
+            return new mongoose.Types.ObjectId(id.trim());
+          } catch (e) {
+            return null;
+          }
+        })
+        .filter(Boolean);
+      if (validStatusIds.length > 0) {
+        query.leadStatus = { $in: validStatusIds };
+      }
+    }
+
 
     if (req.query.searchQuery) {
       const searchRegex = new RegExp(req.query.searchQuery, 'i');
@@ -517,6 +551,23 @@ export const getUnassignedLeads = async (req, res) => {
     if (tags && tags !== 'null') {
       const tagIds = Array.isArray(tags) ? tags : tags.split(',');
       query.tags = { $all: tagIds };
+    }
+
+    const statusParam = req.query.status || req.query.leadStatus;
+    if (statusParam && statusParam !== 'null') {
+      const statusIds = Array.isArray(statusParam) ? statusParam : statusParam.split(',');
+      const validStatusIds = statusIds
+        .map((id) => {
+          try {
+            return new mongoose.Types.ObjectId(id.trim());
+          } catch (e) {
+            return null;
+          }
+        })
+        .filter(Boolean);
+      if (validStatusIds.length > 0) {
+        query.leadStatus = { $in: validStatusIds };
+      }
     }
 
 
@@ -738,12 +789,7 @@ export const employeesAllLeads = async (req, res) => {
           as: "latestFollowup"
         }
       },
-      {
-        $unwind: {
-          path: "$leadStatus",
-          preserveNullAndEmptyArrays: true
-        }
-      },
+
       {
         $unwind: {
           path: "$services",
@@ -841,7 +887,6 @@ export const employeeClosedLeads = async (req, res) => {
                 as: "services",
               },
             },
-            { $unwind: { path: "$leadStatus", preserveNullAndEmptyArrays: true } },
             { $unwind: { path: "$services", preserveNullAndEmptyArrays: true } },
 
             { $sort: { createdAt: -1 } },
@@ -940,7 +985,6 @@ export const employeeNegativeLeads = async (req, res) => {
               },
             },
 
-            { $unwind: { path: "$leadStatus", preserveNullAndEmptyArrays: true } },
             { $unwind: { path: "$services", preserveNullAndEmptyArrays: true } },
 
             { $sort: { createdAt: -1 } },
@@ -1108,12 +1152,6 @@ export const getPendingLeadsByEmployee = async (req, res) => {
                 localField: "leadStatus",
                 foreignField: "_id",
                 as: "leadStatus",
-              },
-            },
-            {
-              $unwind: {
-                path: "$leadStatus",
-                preserveNullAndEmptyArrays: true,
               },
             },
 
@@ -1323,7 +1361,7 @@ export const getTodayReminders = async (req, res) => {
           as: "leadStatus"
         }
       },
-      { $unwind: { path: "$leadStatus", preserveNullAndEmptyArrays: true } },
+
 
       {
         $lookup: {
@@ -1884,7 +1922,9 @@ export const updateLead = async (req, res) => {
     if (state) lead.state = state;
     if (city) lead.city = city;
     if (zipCode) lead.zipCode = zipCode;
-    if (leadStatus) lead.leadStatus = leadStatus;
+    if (leadStatus) {
+      lead.leadStatus = Array.isArray(leadStatus) ? leadStatus : [leadStatus];
+    }
     if (tags) lead.tags = tags
     await lead.save();
     return res.status(201).json({
@@ -2830,7 +2870,9 @@ export const getEmployeeReportDetails = async (req, res) => {
         _id: f.leadId._id,
         name: f.leadId.name,
         phone: f.leadId.phone,
-        status: f.followupStatus ? f.followupStatus.leadStatusText : 'Pending',
+        status: Array.isArray(f.followupStatus)
+          ? f.followupStatus.map(s => s?.leadStatusText || s?.statusName).filter(Boolean).join(', ') || 'Pending'
+          : (f.followupStatus ? (f.followupStatus.leadStatusText || f.followupStatus.statusName) : 'Pending'),
         service: f.service ? f.service.servicesText : 'N/A',
         followedBy: f.followedBy ? f.followedBy.empName : 'N/A',
         message: f.followupMessage || 'No Message',
@@ -2945,7 +2987,9 @@ export const getEmployeeReportDetails = async (req, res) => {
       _id: r._id,
       name: r.name,
       phone: r.phone,
-      status: (r.latestFollowup && r.latestFollowup.statusData) ? r.latestFollowup.statusData.leadStatusText : 'Pending',
+      status: (r.latestFollowup && Array.isArray(r.latestFollowup.statusData))
+        ? r.latestFollowup.statusData.map(s => s?.leadStatusText || s?.statusName).filter(Boolean).join(', ') || 'Pending'
+        : ((r.latestFollowup && r.latestFollowup.statusData) ? (r.latestFollowup.statusData.leadStatusText || r.latestFollowup.statusData.statusName) : 'Pending'),
       service: (r.latestFollowup && r.latestFollowup.serviceData) ? r.latestFollowup.serviceData.servicesText : 'N/A',
       followedBy: (r.latestFollowup && r.latestFollowup.employeeData) ? r.latestFollowup.employeeData.empName : 'N/A',
       message: r.latestFollowup ? r.latestFollowup.followupMessage : 'No followups',
@@ -3111,7 +3155,9 @@ export const getEmployeeActionDetails = async (req, res) => {
       _id: r._id,
       name: r.name,
       phone: r.phone,
-      status: (r.latestFollowup && r.latestFollowup.statusData) ? r.latestFollowup.statusData.leadStatusText : 'Pending',
+      status: (r.latestFollowup && Array.isArray(r.latestFollowup.statusData))
+        ? r.latestFollowup.statusData.map(s => s?.leadStatusText || s?.statusName).filter(Boolean).join(', ') || 'Pending'
+        : ((r.latestFollowup && r.latestFollowup.statusData) ? (r.latestFollowup.statusData.leadStatusText || r.latestFollowup.statusData.statusName) : 'Pending'),
       service: (r.latestFollowup && r.latestFollowup.serviceData) ? r.latestFollowup.serviceData.servicesText : 'N/A',
       followedBy: (r.latestFollowup && r.latestFollowup.employeeData) ? r.latestFollowup.employeeData.empName : 'N/A',
       message: r.latestFollowup ? r.latestFollowup.followupMessage : 'No followups',

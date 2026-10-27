@@ -24,11 +24,10 @@ const excelLeadSchema = mongoose.Schema({
     type: Date,
     default: null
   },
-  leadStatus: {
+  leadStatus: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: "LeadStatus",
-    default: null
-  },
+  }],
   service: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "services",

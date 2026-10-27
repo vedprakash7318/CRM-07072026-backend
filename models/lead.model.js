@@ -52,12 +52,11 @@ const leadSchema = mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: "Priority"
   },
-  // Lead Status
-  leadStatus: {
+  // Lead Status (array of ObjectIds for multi-status selection)
+  leadStatus: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: "LeadStatus"
-
-  },
+  }],
   // Modified this field to be an array of ObjectIds
   leadAssignedTo: [{
     type: mongoose.Schema.Types.ObjectId,

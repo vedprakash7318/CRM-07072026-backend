@@ -13,10 +13,10 @@ const followupSchema = new mongoose.Schema(
       required: false,
     },
   
-    followupStatus: {
+    followupStatus: [{
       type: mongoose.Schema.Types.ObjectId,
       ref:"LeadStatus"
-    },
+    }],
     service:{
       type: mongoose.Schema.Types.ObjectId,
       ref:"services"

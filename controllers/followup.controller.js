@@ -67,7 +67,16 @@ export const addFollowup = async (req, res) => {
     const targetId = req.params.id; // Could be leadId or excelLeadId
     const { status, service, followedBy, message, reminder, clientSpoken, isExcelLead } = req.body;
 
-    if (!targetId || !status || !service || !followedBy || !message) {
+    let statusArray = [];
+    if (Array.isArray(status)) {
+      statusArray = status.filter(Boolean);
+    } else if (typeof status === "string" && status.includes(",")) {
+      statusArray = status.split(",").map((s) => s.trim()).filter(Boolean);
+    } else if (status) {
+      statusArray = [status];
+    }
+
+    if (!targetId || statusArray.length === 0 || !service || !followedBy || !message) {
       return res.status(400).json({
         message: "Some required fields are missing!",
         success: false,
@@ -105,7 +114,7 @@ export const addFollowup = async (req, res) => {
 
     // 1️⃣ Create follow-up
     const followupData = {
-      followupStatus: status,
+      followupStatus: statusArray,
       service,
       followedBy,
       followupMessage: message,
@@ -127,7 +136,7 @@ export const addFollowup = async (req, res) => {
         targetId,
         {
           service: service,
-          leadStatus: status,
+          leadStatus: statusArray,
         },
         { new: true }
       );
@@ -136,7 +145,7 @@ export const addFollowup = async (req, res) => {
         targetId,
         {
           services: service,
-          leadStatus: status,
+          leadStatus: statusArray,
         },
         { new: true }
       );
